@@ -1,0 +1,13 @@
+name = "twitter-archive"
+main = "src/worker/index.ts"
+compatibility_date = "2026-09-29"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "twitter-archive"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "twitter-archive-media"
