@@ -6,7 +6,7 @@
   "topics": [
     { "id": "politics", "label": "정치", "question": "정치, 선거, 정책, 사회 문제" },
     { "id": "economy", "label": "경제", "question": "경제, 투자, 주식, 부동산, 돈" },
-    { "id": "work", "label": "일", "question": "작성자 자신의 일이나 직장, 게임 개발 작업" },
+    { "id": "work", "label": "일", "question": "작성자 자신의 일이나 직장" },
     { "id": "games", "label": "게임", "question": "비디오 게임, 카드 게임, 보드 게임 같은 게임을 하거나 즐기는 일, 게임 업계와 게임 문화" },
     { "id": "film", "label": "영화와 드라마", "question": "실사 영화, 드라마, TV 프로그램 같은 영상 작품" },
     { "id": "anime", "label": "애니와 만화", "question": "애니메이션(극장판 포함), 만화, 웹툰" },
