@@ -1,18 +1,102 @@
-# Twitter Archive
+# twitter-archive
 
-Node.js 22 data import pipeline for the private account archive. Install dependencies with `npm install`.
+[@eiaserinnys](https://x.com/eiaserinnys)의 트윗을 연도별, 주제별로 보고 검색하는 개인 아카이브 사이트의 코드입니다. 2009년 11월부터 쓴 트윗 약 2만 개를 X 데이터 아카이브로 한 번에 들여오고, 그 뒤로 새로 쓰는 트윗은 30분마다 따라 들어옵니다.
 
-## First local import
+- 주소: `twitter.eiaserinnys.me` (지금은 비공개로 운영)
+- 이 리포에는 코드만 있습니다. 트윗 본문, 미디어, 채점 결과, 비밀값은 커밋하지 않습니다. 테스트는 합성으로 만든 트윗만 씁니다.
 
-1. Apply the local D1 schema: `npx wrangler d1 migrations apply DB --local`.
-2. Normalize an X archive zip or extracted directory: `npx tsx scripts/import-archive.ts --archive <archive> --data-dir ./data`.
-3. Fill missing reply and quote context: `X_BEARER_TOKEN=... npx tsx scripts/fetch-context.ts --data-dir ./data --max-usd 40`.
-4. Build scoring states or call Jev: `npx tsx scripts/score.ts --data-dir ./data --max-usd 2 --dry-run`.
-5. Load tweets, scores, media metadata, topic seeds, and import metadata: `npx tsx scripts/load-d1.ts --data-dir ./data --local`.
-6. Upload archive media to local R2 and set D1 keys: `npx tsx scripts/upload-media.ts --archive <archive> --data-dir ./data --local`.
+## 무엇을 볼 수 있나
 
-For live scoring, provide `TYPESAFE_BASE_URL` and `TYPESAFE_API_KEY` in the shell. Do not commit their values.
+화면은 아직 만드는 중이라 아래는 목표 모습입니다. 어디까지 됐는지는 맨 아래 진행 상황에 있습니다.
 
-`src/shared/topics.json` contains the initial v5 seed. After the first D1 load, the `topics` table is the canonical topic definition. Import data and generated scores stay under the ignored `data/` directory. Tests use synthetic archive records only.
+- **연표**: 연도와 주제로 된 격자입니다. 칸의 숫자는 그 해 그 주제로 쓴 트윗 수이고, 연도를 누르면 그 해가 월 단위로 펼쳐집니다.
+- **검색**: 기억나는 대로 적으면 됩니다. 정확한 단어가 아니라 뜻으로 찾습니다.
+- **오늘**: 몇 년 전 오늘 쓴 트윗과 날짜별 달력입니다.
+- **기간 태그**: 경력, 그 무렵 즐긴 게임, 본 영화, 읽은 책을 기간으로 표시해 연표 옆에 띄웁니다. 전체 기간에서는 긴 태그만, 월 단위에서는 짧은 태그까지 보입니다.
+- **공개 범위**: 보는 사람은 본인과 방문자 둘입니다. 주제마다 연표 표시와 검색을 각각 공개, 나만, 숨김으로 정하고, 기간 태그도 공개와 나만으로 나눕니다. 막는 대상은 주제별로 모아 보기이고, 트윗 하나하나는 날짜 화면에서 그대로 보입니다.
 
-This repository contains the Worker health endpoint and data registration pipeline. The archive UI, scheduled collection, search API, visibility fields, and period tags are later work.
+## 주제는 어떻게 붙나
+
+트윗마다 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)(TypeSafe의 System One 모델)에 "이 트윗은 ○○에 관한 이야기인가?"를 주제 수만큼 묻고, 돌아온 0~1 점수를 트윗의 좌표로 저장합니다. 문장을 생성하지 않고 확률만 돌려주는 모델이라 빠르고 쌉니다.
+
+| id | 표시 이름 | Jev에 묻는 문구 |
+|---|---|---|
+| politics | 정치 | 정치, 선거, 정책, 사회 문제 |
+| economy | 경제 | 경제, 투자, 주식, 부동산, 돈 |
+| work | 일 | 작성자 자신의 일이나 직장, 게임 개발 작업 |
+| games | 게임 | 비디오 게임, 카드 게임, 보드 게임 같은 게임을 하거나 즐기는 일, 게임 업계와 게임 문화 |
+| film | 영화와 드라마 | 실사 영화, 드라마, TV 프로그램 같은 영상 작품 |
+| anime | 애니와 만화 | 애니메이션(극장판 포함), 만화, 웹툰 |
+| books | 책 | 책, 독서, 소설 |
+| music | 음악 | 음악, 노래, 가수, 공연 |
+| tech | AI와 기술 | AI, 프로그래밍, IT 기술과 기기 |
+| family | 가족 | 작성자 본인의 가족(배우자, 아이, 부모) |
+| personal | 개인사 | 작성자 개인의 생활과 심경(이사, 건강, 하루 일과, 기분, 넋두리) |
+| creation | 창작 | 작성자가 직접 이야기, 캐릭터, 세계관, 글, 그림을 만들거나 만드는 법 |
+| review | 감상과 평 | 게임, 영화, 책, 애니 같은 작품을 보고 느낀 감상이나 평가 |
+
+- 연표와 주제 필터에는 0.7 이상만 셉니다. 검색에서 후보를 추릴 때는 놓치지 않도록 0.5 이상을 씁니다.
+- 이 목록은 첫 적재용 초깃값(`src/shared/topics.json`)입니다. 적재한 뒤에는 D1의 `topics` 테이블이 정본이고, 설정 화면에서 주제를 더하거나 문구를 고칠 수 있습니다. 문구가 바뀐 주제는 그 주제만 다시 채점합니다.
+- 사람이 직접 읽고 정한 정답 100개와 대조해 문구를 골랐습니다. 0.5 기준 종합 점수(F1)는 0.76, 0.7 기준에서 붙은 주제의 84%가 맞습니다.
+
+다듬으면서 알게 된 것 두 가지는 코드에 그대로 반영되어 있습니다.
+
+- Jev에 넘기는 글에 작성자 소개를 넣지 않습니다. "작성자는 게임 개발자"라는 한 줄을 넣었더니 "어머나 세상에" 같은 짧은 글까지 게임으로 끌려갔습니다.
+- 트윗은 한 요청에 하나씩 채점합니다. 10개씩 묶으면 7배 빨라지지만 옆 트윗의 주제가 번져서 검색 후보를 놓치는 비율이 늘었습니다. 하나씩 해도 2만 개가 30분 남짓이면 끝납니다.
+
+## 구성
+
+- **Cloudflare Worker**: 화면과 API (`src/worker/`)
+- **D1**: 트윗, 미디어 정보, 주제 점수, 주제 정의 (`migrations/`)
+- **R2**: 사진과 영상 파일
+- **Cloudflare Access**: 사이트 앞단의 접근 제한. 공개로 바꿀 때는 코드를 고치지 않고 이 설정만 바꿉니다.
+- **등록 스크립트**: Node 22와 tsx로 돌리는 스크립트 (`scripts/`)
+
+## 아카이브 등록하기
+
+X 설정의 "데이터 아카이브 다운로드"로 받은 zip을 준비합니다. 모든 스크립트는 작업 데이터를 `--data-dir`(기본 `./data`, 커밋 제외)에만 씁니다. 로컬 확인은 `--local`, 실제 사이트는 `--remote`입니다.
+
+```bash
+npm install
+
+# 1. DB 스키마
+npx wrangler d1 migrations apply DB --local
+
+# 2. 아카이브 읽기: 리트윗을 빼고, 긴 글과 링크와 미디어를 정리해 tweets.jsonl로
+npx tsx scripts/import-archive.ts --archive <zip 또는 풀린 폴더> --data-dir ./data
+
+# 3. 답글의 원글과 인용한 글 채우기 (X API, 비용 상한 지정)
+X_BEARER_TOKEN=... npx tsx scripts/fetch-context.ts --data-dir ./data --max-usd 40
+
+# 4. 주제 채점 (Jev). --dry-run이면 요청 없이 넘길 글만 만들어 봅니다
+TYPESAFE_BASE_URL=... TYPESAFE_API_KEY=... npx tsx scripts/score.ts --data-dir ./data --max-usd 2
+
+# 5. D1에 적재 (트윗, 점수, 미디어 정보, 주제 초깃값)
+npx tsx scripts/load-d1.ts --data-dir ./data --local
+
+# 6. 미디어 파일을 R2에 올리기
+npx tsx scripts/upload-media.ts --archive <zip 또는 풀린 폴더> --data-dir ./data --local
+```
+
+3번과 4번은 이미 처리한 트윗을 건너뛰므로 중간에 멈춰도 다시 실행하면 이어집니다. 비밀값은 셸 환경으로만 넘기고 파일이나 커밋에 남기지 않습니다.
+
+## 비용 (2026년 9월 단가)
+
+- **X API** 게시물 읽기 건당 $0.005: 답글 원글 보강은 처음 한 번 $20~35, 새 트윗 수집은 한 달 $0.5 안팎
+- **Jev** 입력 100만 토큰당 $0.042: 2만 개 전체 채점 한 번에 약 $1
+
+## 진행 상황
+
+- [x] 데이터 등록 파이프라인
+- [ ] 화면과 읽기 API (연표, 월 연표, 오늘, 기간 태그, 설정, 공개 범위)
+- [ ] 30분마다 새 트윗 수집과 채점 대기열
+- [ ] Jev 검색
+- [ ] 배포 (D1, R2, Worker, 도메인, Access)
+
+## 개발
+
+```bash
+npm install
+npm test            # vitest, 합성 아카이브 픽스처
+npx tsc --noEmit    # 타입 검사
+```
