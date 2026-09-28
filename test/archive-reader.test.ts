@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readArchiveMember, readArchiveScripts } from "../src/archive/archive-reader.js";
+import { extractArchiveMembers, readArchiveMember, readArchiveScripts } from "../src/archive/archive-reader.js";
 import { normalizeArchive } from "../src/archive/normalize.js";
 import { writeSyntheticArchive, syntheticArchiveFiles } from "./fixtures.js";
 
@@ -25,6 +25,23 @@ describe("archive reader", () => {
     expect(rows).toHaveLength(7);
     expect(files.has("data/direct-messages.js")).toBe(false);
     expect(photo && new TextDecoder().decode(photo)).toBe("synthetic-photo-1");
+  });
+
+  it("extracts selected zip media to disk in one archive pass", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "twitter-archive-media-reader-"));
+    temporaryDirectories.push(directory);
+    const zipPath = join(directory, "synthetic.zip");
+    const photoPath = join(directory, "out", "photo.jpg");
+    const videoPath = join(directory, "out", "video.jpg");
+    await writeSyntheticArchive(zipPath);
+
+    await extractArchiveMembers(zipPath, new Map([
+      ["data/tweets_media/101-photo.jpg", photoPath],
+      ["data/tweets_media/108-video108.jpg", videoPath],
+    ]));
+
+    expect(await readFile(photoPath, "utf8")).toBe("synthetic-photo-1");
+    expect(await readFile(videoPath, "utf8")).toBe("synthetic-video-thumbnail");
   });
 
   it("reads scripts from an extracted archive directory", async () => {

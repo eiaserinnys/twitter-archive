@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readArchiveMember } from "../src/archive/archive-reader.js";
+import { extractArchiveMembers } from "../src/archive/archive-reader.js";
 import { readJsonl, writeJsonl } from "../src/shared/jsonl.js";
 import type { NormalizedTweet } from "../src/shared/types.js";
 import { isDirectExecution, parseCliArgs, reportCliError, requiredString, selectedMode } from "./lib/cli.js";
@@ -23,26 +23,30 @@ export async function uploadMedia(options: UploadMediaOptions): Promise<number> 
   const updates: string[] = [];
   const repoRoot = fileURLToPath(new URL("../", import.meta.url));
   const tempDir = resolve(dataDir, ".media-upload");
-  await mkdir(tempDir, { recursive: true });
+  const uploads: Array<{ tweet: NormalizedTweet; index: number; media: NormalizedTweet["media"][number]; r2Key: string; localPath: string }> = [];
+  const destinations = new Map<string, string>();
   let uploaded = 0;
 
   for (const tweet of tweets) {
     for (const [index, media] of tweet.media.entries()) {
       if (media.r2_key || !media.archive_path) continue;
-      const content = await readArchiveMember(options.archive, media.archive_path);
-      if (!content) throw new Error(`Archive media file is missing: ${media.archive_path}`);
       const filename = basename(media.archive_path);
       const r2Key = `media/${tweet.id}/${filename}`;
       const localPath = resolve(tempDir, `${tweet.id}-${index}-${filename}`);
-      await writeFile(localPath, content);
-      execFileSync("npx", [
-        "wrangler", "r2", "object", "put", `twitter-archive-media/${r2Key}`,
-        "--file", localPath, `--${options.mode}`,
-      ], { cwd: repoRoot, stdio: "inherit" });
-      media.r2_key = r2Key;
-      updates.push(`UPDATE media SET r2_key = ${sqlValue(r2Key)} WHERE tweet_id = ${sqlValue(tweet.id)} AND idx = ${index};`);
-      uploaded += 1;
+      destinations.set(media.archive_path, localPath);
+      uploads.push({ tweet, index, media, r2Key, localPath });
     }
+  }
+
+  await extractArchiveMembers(options.archive, destinations);
+  for (const { tweet, index, media, r2Key, localPath } of uploads) {
+    execFileSync("npx", [
+      "wrangler", "r2", "object", "put", `twitter-archive-media/${r2Key}`,
+      "--file", localPath, `--${options.mode}`,
+    ], { cwd: repoRoot, stdio: "inherit" });
+    media.r2_key = r2Key;
+    updates.push(`UPDATE media SET r2_key = ${sqlValue(r2Key)} WHERE tweet_id = ${sqlValue(tweet.id)} AND idx = ${index};`);
+    uploaded += 1;
   }
 
   if (updates.length > 0) {
@@ -54,6 +58,7 @@ export async function uploadMedia(options: UploadMediaOptions): Promise<number> 
     });
   }
   await writeJsonl(resolve(dataDir, "tweets.jsonl"), tweets);
+  await rm(tempDir, { recursive: true, force: true });
   return uploaded;
 }
 
