@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { normalizeV2Response } from "../src/worker/collect/normalize-v2.js";
 import { collectNewTweets } from "../src/worker/collect/index.js";
 import { buildJevRequest, canReserveJevSpend } from "../src/worker/score-queue.js";
@@ -155,6 +155,54 @@ describe("initial X collection", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0].searchParams.get("max_results")).toBe("100");
     expect(requests[0].searchParams.has("since_id")).toBe(false);
+  });
+});
+
+describe("paged X collection", () => {
+  it("stops after 32 pages and warns when a next token remains", async () => {
+    const statement = {
+      key: "",
+      bind(key: string) { statement.key = key; return statement; },
+      all: async () => ({ results: [], success: true, meta: { changes: 0 } }),
+      first: async () => statement.key === "collect_since_id" ? { value: "999" } : null,
+      run: async () => ({ results: [], success: true, meta: { changes: 0 } }),
+    };
+    const db = {
+      prepare: () => statement,
+      batch: async () => [],
+    };
+    const env = { DB: db, X_USER_ID: "self", X_BEARER_TOKEN: "test-token" } as unknown as Env;
+    const requests: URL[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = input instanceof URL ? input : new URL(String(input));
+      requests.push(url);
+      const page = requests.length;
+      return Response.json({
+        data: [{
+          id: String(1000 + page),
+          author_id: "self",
+          created_at: "2024-01-01T00:00:00.000Z",
+          text: `Synthetic post ${page}`,
+        }],
+        meta: { next_token: `page-${page}` },
+      });
+    };
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      await collectNewTweets(env, fetchImpl);
+
+      expect(requests).toHaveLength(32);
+      expect(requests[0].searchParams.has("pagination_token")).toBe(false);
+      expect(requests[1].searchParams.get("pagination_token")).toBe("page-1");
+      expect(requests[31].searchParams.get("pagination_token")).toBe("page-31");
+      expect(warning).toHaveBeenCalledOnce();
+      expect(warning).toHaveBeenCalledWith(
+        "X collection reached the 32-page timeline limit; re-import the X archive to fill older gaps.",
+      );
+    } finally {
+      warning.mockRestore();
+    }
   });
 });
 

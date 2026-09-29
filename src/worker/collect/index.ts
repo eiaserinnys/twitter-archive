@@ -2,7 +2,7 @@ import type { NormalizedTweet, TweetMedia } from "../../shared/types.js";
 import type { D1PreparedStatement, Env } from "../env.js";
 import { normalizeV2Response, type NormalizedV2Tweet } from "./normalize-v2.js";
 
-const PAGE_LIMIT = 5;
+const PAGE_LIMIT = 32;
 const PAGE_SIZE = 100;
 const WRITE_BATCH_TWEETS = 40;
 
@@ -132,6 +132,9 @@ export async function collectNewTweets(env: Env, fetchImpl: typeof fetch = fetch
     const meta = payload && typeof payload === "object" && "meta" in payload ? (payload as { meta?: { next_token?: unknown } }).meta : undefined;
     paginationToken = stringValue(meta?.next_token);
     if (!paginationToken) break;
+  }
+  if (paginationToken && pageLimit === PAGE_LIMIT) {
+    console.warn("X collection reached the 32-page timeline limit; re-import the X archive to fill older gaps.");
   }
 
   for (const item of tweets) await uploadTweetMedia(env, item, fetchImpl);

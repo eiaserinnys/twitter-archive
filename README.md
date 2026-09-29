@@ -93,7 +93,7 @@ JEV_MONTHLY_USD_CAP = "5"
 
 ## 자동 수집과 채점
 
-Worker는 30분마다 X API에서 새 트윗을 최대 5페이지까지 가져오고, 매분 현재 버전 점수가 빠진 주제를 채점합니다. 최초 실행은 아카이브 적재 때 저장한 `max_tweet_id` 뒤부터 시작하며, 그 값도 없으면 최근 트윗 100개를 가져옵니다. 월별 Jev 비용이 `JEV_MONTHLY_USD_CAP`에 도달하면 해당 월의 채점을 멈춥니다.
+Worker는 30분마다 X API에서 새 트윗을 최대 32페이지까지 가져오고, 매분 현재 버전 점수가 빠진 주제를 채점합니다. 최초 실행은 아카이브 적재 때 저장한 `max_tweet_id` 뒤부터 시작하며, 그 값도 없으면 최근 트윗 100개를 가져옵니다. 32페이지 뒤에도 수집할 트윗이 남으면 경고를 기록하며, 누락 구간은 X 데이터 아카이브를 다시 다운로드해 등록하면 메울 수 있습니다. 월별 Jev 비용이 `JEV_MONTHLY_USD_CAP`에 도달하면 해당 월의 채점을 멈춥니다.
 
 `.dev.vars` 또는 Worker secrets에는 `X_BEARER_TOKEN`, `TYPESAFE_BASE_URL`, `TYPESAFE_API_KEY`를 설정합니다. `X_USER_ID`와 비용 상한은 일반 Worker 변수로 둡니다.
 
