@@ -2,14 +2,19 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/worker/index.js";
+import type { JevAnswer } from "../src/shared/jev-client.js";
 import type { D1Database, D1PreparedStatement, Env } from "../src/worker/env.js";
-import { buildJudgeRequest, deriveJudgment } from "../src/worker/search/judge.js";
+import { buildJudgeRequest, chooseStrategies, deriveJudgment } from "../src/worker/search/judge.js";
 import { findCandidates } from "../src/worker/search/candidates.js";
 import { buildRankRequest } from "../src/worker/search/rank.js";
 
-const jevCalls = vi.hoisted(() => ({ responses: [] as Array<{ answers: Record<string, { noul?: number; probabilities?: Record<string, number> }>; inputTokens: number }> }));
+const jevCalls = vi.hoisted(() => ({
+  responses: [] as Array<{ answers: Record<string, JevAnswer>; inputTokens: number }>,
+  requests: [] as Array<{ questions: Record<string, { instructions: string }> }>,
+}));
 vi.mock("../src/shared/jev-client.js", () => ({
-  callJev: vi.fn(async () => {
+  callJev: vi.fn(async (_config, request) => {
+    jevCalls.requests.push(request);
     const response = jevCalls.responses.shift();
     if (!response) throw new Error("No fake Jev response was queued.");
     return response;
@@ -60,7 +65,7 @@ function score(sqlite: DatabaseSync, id: string, topic: string, value: number) {
 }
 
 describe("search judgment", () => {
-  it("asks one positive question per allowed topic and a year choice", () => {
+  it("asks topic, period, intent and fixed strategy questions in one request", () => {
     const request = buildJudgeRequest("몇 년 전 본 영화", topics.slice(0, 1), [2015, 2016]);
     expect(request.state).toBe("찾는 트윗: 몇 년 전 본 영화");
     expect(request.questions.topic_film).toEqual({
@@ -71,19 +76,39 @@ describe("search judgment", () => {
       type: "choice", instructions: "이 질의가 가리키는 시기는?",
       criteria: { "2015": "2015년", "2016": "2016년", none: "특정한 시기를 가리키지 않는다" },
     });
+    expect(request.questions.intent).toEqual({
+      type: "choice", instructions: "이 질의가 원하는 것은?",
+      criteria: { one: "기억하는 특정한 트윗 하나", many: "조건에 맞는 여러 트윗" },
+    });
+    expect(Object.keys(request.questions).sort()).toEqual([
+      "intent", "period", "strategy_period", "strategy_topics", "strategy_words", "topic_film",
+    ]);
   });
 
   it("uses none at 0.5 and otherwise accumulates years to 0.8", () => {
     const noPeriod = deriveJudgment({
       topic_film: { noul: 0.6 },
       period: { probabilities: { "2015": 0.3, "2016": 0.2, none: 0.5 } },
+      intent: { choice: "one" },
+      strategy_period: { noul: 0.9 }, strategy_topics: { noul: 0.7 }, strategy_words: { noul: 0.3 },
     }, topics.slice(0, 1), [2015, 2016]);
-    expect(noPeriod).toEqual({ topics: [{ id: "film", score: 0.6 }], period: null });
+    expect(noPeriod).toMatchObject({ topics: [{ id: "film", score: 0.6 }], period: null, intent: "one" });
+    expect(noPeriod.strategies.map(({ id }) => id)).toEqual(["topics", "words"]);
     const period = deriveJudgment({
       topic_film: { noul: 0.49 },
       period: { probabilities: { "2015": 0.45, "2016": 0.36, "2017": 0.15, none: 0.04 } },
+      intent: { choice: "many" },
+      strategy_period: { noul: 0.8 }, strategy_topics: { noul: 0.6 }, strategy_words: { noul: 0.1 },
     }, topics.slice(0, 1), [2015, 2016, 2017]);
-    expect(period).toEqual({ topics: [], period: { from: "2015-01-01", to: "2016-12-31" } });
+    expect(period).toMatchObject({ topics: [], period: { from: "2015-01-01", to: "2016-12-31" }, intent: "many" });
+    expect(period.topicCoordinates).toEqual([{ id: "film", score: 0.49 }]);
+  });
+
+  it("selects a single clear winner, a score band of at most three, or topics and words by default", () => {
+    expect(chooseStrategies({ period: 0.8, topics: 0.6, words: 0.3 }, true).filter((s) => s.selected).map((s) => s.id)).toEqual(["period"]);
+    expect(chooseStrategies({ period: 0.7, topics: 0.6, words: 0.5 }, true).filter((s) => s.selected).map((s) => s.id)).toEqual(["period", "topics", "words"]);
+    expect(chooseStrategies({ period: 0.2, topics: 0.3, words: 0.1 }, true).filter((s) => s.selected).map((s) => s.id)).toEqual(["topics", "words"]);
+    expect(chooseStrategies({ period: 0.99, topics: 0.72, words: 0.68 }, false).map((s) => s.id)).toEqual(["topics", "words"]);
   });
 });
 
@@ -95,8 +120,9 @@ describe("SQL candidates", () => {
     tweet(sqlite, "3", "비공개 영화"); score(sqlite, "3", "secret", 0.9);
     tweet(sqlite, "4", "낱말 없는 장면"); score(sqlite, "4", "film", 0.6);
     tweet(sqlite, "5", "낱말 없는 저점"); score(sqlite, "5", "film", 0.4);
-    expect((await findCandidates(db, visitor, { q: "영화", judgedTopics: ["film"] })).map((row) => row.id)).toEqual(["1", "4"]);
-    expect((await findCandidates(db, owner, { q: "영화", judgedTopics: ["film"] })).map((row) => row.id)).toEqual(["1", "2", "4"]);
+    const filters = { q: "영화", strategies: ["topics", "words"] as const, topicCoordinates: [{ id: "film", score: 0.8 }] };
+    expect((await findCandidates(db, visitor, filters)).map((row) => row.id)).toEqual(["1", "4", "5"]);
+    expect((await findCandidates(db, owner, filters)).map((row) => row.id)).toEqual(["1", "2", "4", "5"]);
   });
 
   it("applies manual filters and prefers word hits before topic score at the 480 cap", async () => {
@@ -106,10 +132,23 @@ describe("SQL candidates", () => {
       tweet(sqlite, id, number === 481 ? "마지막 영화" : "다른 내용");
       score(sqlite, id, "film", number === 481 ? 0.51 : 0.99);
     }
-    const rows = await findCandidates(db, owner, { q: "영화", judgedTopics: ["film"], topics: ["film"], kinds: ["original"], from: "2015-01-01", to: "2015-12-31" });
+    const rows = await findCandidates(db, owner, { q: "영화", strategies: ["topics", "words"], topicCoordinates: [{ id: "film", score: 0.8 }], topics: ["film"], kinds: ["original"], from: "2015-01-01", to: "2015-12-31" });
     expect(rows).toHaveLength(480);
     expect(rows[0].id).toBe("481");
     expect(rows.some((row) => row.id === "001")).toBe(false);
+  });
+
+  it("uses a weighted topic dot product, quoted text words, period AND, and excludes ranked IDs", async () => {
+    const { db, sqlite } = database();
+    tweet(sqlite, "1", "다른 말", 2015); score(sqlite, "1", "film", 0.8);
+    tweet(sqlite, "2", "다른 말", 2015); score(sqlite, "2", "politics", 0.9);
+    tweet(sqlite, "3", "다른 말", 2016); score(sqlite, "3", "film", 0.9);
+    tweet(sqlite, "4", "다른 말", 2015);
+    sqlite.prepare("UPDATE tweets SET quoted_text = '영화 제목' WHERE id = '4'").run();
+    const base = { q: "영화", topicCoordinates: [{ id: "film", score: 0.9 }, { id: "politics", score: 0.3 }], period: { from: "2015-01-01", to: "2015-12-31" } };
+    expect((await findCandidates(db, owner, { ...base, strategies: ["period", "topics", "words"] })).map((row) => row.id)).toEqual(["4", "1", "2"]);
+    expect((await findCandidates(db, owner, { ...base, strategies: ["topics"], excludeIds: ["1"] })).map((row) => row.id)).toEqual(["3", "2"]);
+    expect(await findCandidates(db, owner, { ...base, strategies: ["period"], from: "2016-01-01" })).toEqual([]);
   });
 });
 
@@ -124,13 +163,15 @@ describe("search ranking and route", () => {
       instructions: "다음 트윗이 찾는 트윗인가?\n작성일: 2015-01-01\n원글: 원글 내용\n인용한 글: 인용 내용\n트윗: 내 감상",
       criteria: { true: "그렇다", false: "아니다" },
     });
+    expect(buildRankRequest("그 영화", [], 0, "related").state).toBe("찾는 트윗: 그 영화");
+    expect(buildRankRequest("그 영화", [{ id: "1", created_at: "", date_kst: "2015-01-01", kind: "original", text: "글", parent_id: null, parent_text: null, parent_author: null, quoted_id: null, quoted_text: null }], 0, "related").questions.c0.instructions).toContain("다음 트윗이 찾는 내용과 관련이 있는가?");
   });
 
   it("returns the response contract and enforces the visitor daily limit", async () => {
     const { db, sqlite } = database();
     tweet(sqlite, "1", "영화 이야기"); score(sqlite, "1", "film", 0.9);
     jevCalls.responses.push(
-      { answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, period: { probabilities: { "2015": 0.1, none: 0.9 } } }, inputTokens: 100 },
+      { answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, period: { probabilities: { "2015": 0.1, none: 0.9 } }, intent: { choice: "one" }, strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.8 }, strategy_words: { noul: 0.2 } }, inputTokens: 100 },
       { answers: { c0: { noul: 0.93 } }, inputTokens: 100 },
     );
     const env = { DB: db, DEV_OWNER: "1", SEARCH_DAILY_LIMIT: "1", SITE_TITLE: "test", TYPESAFE_BASE_URL: "https://jev.test", TYPESAFE_API_KEY: "fake", ACCESS_TEAM_DOMAIN: "" } as Env;
@@ -140,18 +181,58 @@ describe("search ranking and route", () => {
     const first = await app.fetch(request(), env);
     expect(first.status).toBe(200);
     const body = await first.json() as Record<string, unknown>;
-    expect(Object.keys(body)).toEqual(["q", "judged", "candidates", "results", "stages"]);
+    expect(Object.keys(body)).toEqual(["q", "judged", "candidates", "results", "stages", "intent", "strategies", "rank_question", "fallback", "rounds"]);
     expect(body.judged).toEqual({ topics: [{ id: "film", score: 0.9 }], period: null });
     expect(body.candidates).toBe(1);
-    expect((body.results as Array<{ score: number; why: string; tweet: { id: string } }>)[0]).toMatchObject({ score: 0.93, why: "영화와 드라마", tweet: { id: "1" } });
+    expect((body.results as Array<{ score: number; why: string; tweet: { id: string } }>)[0]).toMatchObject({ score: 0.93, why: "주제 좌표, 영화와 드라마", tweet: { id: "1" } });
+    expect(body).toMatchObject({ intent: "one", rank_question: "exact", fallback: false, rounds: 1 });
     expect((body.stages as Array<{ name: string }>).map((stage) => stage.name)).toEqual(["judge", "candidates", "rank"]);
     const denied = await app.fetch(request(), env);
     expect(denied.status).toBe(429);
     expect(await denied.json()).toEqual({ error: "search_limit" });
     jevCalls.responses.push(
-      { answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, period: { probabilities: { "2015": 0.1, none: 0.9 } } }, inputTokens: 100 },
+      { answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, period: { probabilities: { "2015": 0.1, none: 0.9 } }, intent: { choice: "one" }, strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.8 }, strategy_words: { noul: 0.2 } }, inputTokens: 100 },
       { answers: { c0: { noul: 0.93 } }, inputTokens: 100 },
     );
     expect((await app.fetch(request("owner"), env)).status).toBe(200);
+  });
+
+  it("uses a related fallback for one, and a matches question for many", async () => {
+    const { db, sqlite } = database();
+    tweet(sqlite, "1", "영화 이야기"); score(sqlite, "1", "film", 0.9);
+    const env = { DB: db, DEV_OWNER: "1", SEARCH_DAILY_LIMIT: "9", SITE_TITLE: "test", TYPESAFE_BASE_URL: "https://jev.test", TYPESAFE_API_KEY: "fake", ACCESS_TEAM_DOMAIN: "" } as Env;
+    const answer = (intent: "one" | "many") => ({ answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, topic_secret: { noul: 0.1 }, period: { probabilities: { "2015": 0.1, none: 0.9 } }, intent: { choice: intent }, strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.8 }, strategy_words: { noul: 0.2 } }, inputTokens: 100 });
+    const request = () => new Request("https://archive.test/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "영화" }) });
+    jevCalls.responses.push(answer("one"), { answers: { c0: { noul: 0.3 } }, inputTokens: 100 }, { answers: { c0: { noul: 0.7 } }, inputTokens: 100 });
+    const one = await (await app.fetch(request(), env)).json() as Record<string, unknown>;
+    expect(one).toMatchObject({ intent: "one", rank_question: "related", fallback: true, rounds: 1 });
+    expect((one.results as Array<{ tweet: { id: string } }>).map((item) => item.tweet.id)).toEqual(["1"]);
+    expect((one.stages as Array<{ name: string }>).map((stage) => stage.name)).toEqual(["judge", "candidates", "rank", "fallback"]);
+    jevCalls.responses.push(answer("many"), { answers: { c0: { noul: 0.7 } }, inputTokens: 100 });
+    const many = await (await app.fetch(request(), env)).json() as Record<string, unknown>;
+    expect(many).toMatchObject({ intent: "many", rank_question: "matches", fallback: false, rounds: 1 });
+    expect(jevCalls.requests.at(-1)?.questions.c0.instructions).toContain("다음 트윗이 찾는 조건에 해당하는가?");
+    jevCalls.responses.push(answer("one"), { answers: { c0: { noul: 0.2 } }, inputTokens: 100 }, { answers: { c0: { noul: 0.3 } }, inputTokens: 100 });
+    const empty = await (await app.fetch(request(), env)).json() as Record<string, unknown>;
+    expect(empty).toMatchObject({ results: [], rank_question: "related", fallback: true, rounds: 2 });
+  });
+
+  it("tries unused strategies once after empty results without ranking a tweet twice", async () => {
+    const previousRequests = jevCalls.requests.length;
+    const { db, sqlite } = database();
+    tweet(sqlite, "1", "영화 이야기"); score(sqlite, "1", "film", 0.9);
+    tweet(sqlite, "2", "별도 낱말"); score(sqlite, "2", "politics", 0.9);
+    const env = { DB: db, DEV_OWNER: "1", SEARCH_DAILY_LIMIT: "9", SITE_TITLE: "test", TYPESAFE_BASE_URL: "https://jev.test", TYPESAFE_API_KEY: "fake", ACCESS_TEAM_DOMAIN: "" } as Env;
+    jevCalls.responses.push(
+      { answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, topic_secret: { noul: 0.1 }, period: { probabilities: { "2015": 0.1, none: 0.9 } }, intent: { choice: "many" }, strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.8 }, strategy_words: { noul: 0.2 } }, inputTokens: 100 },
+      { answers: { c0: { noul: 0.2 } }, inputTokens: 100 },
+      { answers: { c0: { noul: 0.8 } }, inputTokens: 100 },
+    );
+    const response = await app.fetch(new Request("https://archive.test/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "별도 낱말" }) }), env);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ rounds: 2, intent: "many", rank_question: "matches" });
+    expect((body.results as Array<{ tweet: { id: string } }>).map((item) => item.tweet.id)).toEqual(["2"]);
+    expect((body.stages as Array<{ name: string }>).map((stage) => stage.name)).toEqual(["judge", "candidates", "rank", "round2"]);
+    expect(jevCalls.requests.slice(previousRequests).filter((request) => request.questions.c0)).toHaveLength(2);
   });
 });

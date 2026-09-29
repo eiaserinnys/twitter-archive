@@ -5,7 +5,7 @@ const examples = [
   '몇 년 전 봤던 영화 이야기', '이사하던 무렵',
   '처음 산 게임기', '일이 막혔다가 풀린 날',
 ];
-const stepNames = ['주제와 시기 판정', '후보 추림', '순위 매김'];
+const stepNames = ['주제와 시기, 전략 판정', '후보 추림', '순위 매김'];
 
 export function createSearch(ctx, { navigate, showTab }) {
   const input = $('q'), main = $('srMain');
@@ -148,7 +148,7 @@ export function createSearch(ctx, { navigate, showTab }) {
     if (!currentQuery) { idle(); return; }
     const token = ++requestNumber;
     const box = stagesBox();
-    main.replaceChildren(resultHeader('SEARCH / 뜻 검색', '주제와 시기를 판정하고, 후보를 추린 뒤 뜻으로 순위를 매깁니다.'), box);
+    main.replaceChildren(resultHeader('SEARCH / 뜻 검색', '주제와 시기, 전략을 판정하고 후보를 추린 뒤 뜻으로 순위를 매깁니다.'), box);
     const progress = setInterval(() => {
       const running = box.querySelector('.step.run');
       const next = running?.nextElementSibling;
@@ -158,7 +158,15 @@ export function createSearch(ctx, { navigate, showTab }) {
       const response = await search(filterBody());
       if (token !== requestNumber) return;
       fillStages(box, response);
-      main.append(renderResults(response.results, response.results.length));
+      const head = main.querySelector('.res-head');
+      if (response.intent === 'many') head.querySelector('.mode').textContent = 'SEARCH / 모아 보기';
+      const chips = el('div', 'toggles'); chips.style.marginTop = '12px';
+      chips.setAttribute('aria-label', '선택된 검색 전략');
+      (response.strategies || []).filter(strategy => strategy.selected)
+        .forEach(strategy => chips.append(el('span', 'tg', strategy.label)));
+      if (chips.childElementCount) head.append(chips);
+      main.append(renderResults(response.results, response.results.length,
+        response.fallback && response.results.length ? '정확히 맞는 트윗은 없어 관련 트윗을 보여 드립니다' : null));
     } catch (error) {
       if (token !== requestNumber) return;
       if (error instanceof ApiError && [404, 501].includes(error.status)) await fallback();
