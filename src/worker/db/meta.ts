@@ -8,12 +8,12 @@ export interface CacheMeta {
 export async function getCacheMeta(db: D1Database): Promise<CacheMeta> {
   const result = await db.prepare(`
     SELECT key, value FROM meta
-    WHERE key IN ('data_version', 'last_collected_at')
+    WHERE key IN ('data_version', 'last_collected_at', 'last_import_at')
   `).all<{ key: string; value: string }>();
   const values = new Map(result.results.map(({ key, value }) => [key, value]));
   return {
     data_version: values.get("data_version") ?? null,
-    last_collected_at: values.get("last_collected_at") ?? null,
+    last_collected_at: values.get("last_collected_at") ?? values.get("last_import_at") ?? null,
   };
 }
 
