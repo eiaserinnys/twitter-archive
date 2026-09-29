@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../env.js";
 import type { Viewer } from "../auth.js";
 import { getTag, toPeriodTag, visibleTags, type TagKind } from "../db/tags.js";
+import { bumpDataVersion } from "../db/meta.js";
 import { randomId } from "../ids.js";
 import type { AppContext } from "./helpers.js";
 import { invalid, isDate, ownerJsonBody, ownerOnly } from "./helpers.js";
@@ -48,6 +49,7 @@ route.post("/api/tags", async (context: AppContext) => {
     INSERT INTO period_tags (id, label, kind, start_date, end_date, note, visibility, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(id, body.label, body.kind, body.start_date, body.end_date, body.note, body.visibility, now, now).run();
+  await bumpDataVersion(context.env.DB);
   const tag = await getTag(context.env.DB, id);
   if (!tag) throw new Error("Created period tag was not found.");
   return context.json({ tag: toPeriodTag(tag) }, 201);
@@ -86,6 +88,7 @@ route.patch("/api/tags/:id", async (context: AppContext) => {
     const setClause = updates.map(([, column]) => `${column} = ?`).join(", ");
     await context.env.DB.prepare(`UPDATE period_tags SET ${setClause}, updated_at = ? WHERE id = ?`)
       .bind(...values, new Date().toISOString(), current.id).run();
+    await bumpDataVersion(context.env.DB);
   }
   const tag = await getTag(context.env.DB, current.id);
   if (!tag) throw new Error("Updated period tag was not found.");
@@ -98,6 +101,7 @@ route.delete("/api/tags/:id", async (context: AppContext) => {
   const result = await context.env.DB.prepare("DELETE FROM period_tags WHERE id = ?")
     .bind(context.req.param("id") ?? "").run();
   if (!result.meta.changes) return context.json({ error: "not_found" }, 404);
+  await bumpDataVersion(context.env.DB);
   return context.json({ ok: true });
 });
 

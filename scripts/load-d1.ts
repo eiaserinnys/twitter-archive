@@ -91,6 +91,7 @@ export function buildSql(tweets: NormalizedTweet[], scores: ScoreRow[], topicSee
   }, null);
   statements.push(...insertStatements("meta", ["key", "value"], [["last_import_at", new Date().toISOString()]]));
   if (maxTweetId !== null) statements.push(...insertStatements("meta", ["key", "value"], [["max_tweet_id", maxTweetId]]));
+  statements.push(`INSERT INTO meta (key, value) VALUES ('data_version', ${sqlValue(String(Date.now()))}) ON CONFLICT(key) DO UPDATE SET value = excluded.value;`);
   return `${statements.join("\n\n")}\n`;
 }
 

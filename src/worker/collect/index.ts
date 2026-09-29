@@ -1,5 +1,6 @@
 import type { NormalizedTweet, TweetMedia } from "../../shared/types.js";
 import type { D1PreparedStatement, Env } from "../env.js";
+import { dataVersionStatement } from "../db/meta.js";
 import { normalizeV2Response, type NormalizedV2Tweet } from "./normalize-v2.js";
 
 const PAGE_LIMIT = 32;
@@ -146,6 +147,7 @@ export async function collectNewTweets(env: Env, fetchImpl: typeof fetch = fetch
     env.DB.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").bind("last_collected_at", now),
   ];
   if (collectedId) statements.push(env.DB.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").bind("collect_since_id", collectedId));
+  if (tweets.length > 0) statements.push(dataVersionStatement(env.DB));
   if (!env.DB.batch) throw new Error("D1 batch execution is unavailable.");
   const results = await env.DB.batch(statements);
   if (results.some((result) => !result.success)) throw new Error("D1 rejected X collection metadata.");
