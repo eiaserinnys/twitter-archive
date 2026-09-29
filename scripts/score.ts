@@ -2,6 +2,8 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { TOPIC_SEED, type TopicSeedConfig } from "../src/shared/topics.js";
 import { readJsonl, writeJsonl } from "../src/shared/jsonl.js";
+import { JEV_USD_PER_MILLION_INPUT } from "../src/shared/jev-client.js";
+import { buildState } from "../src/shared/tweet-state.js";
 import type { NormalizedTweet } from "../src/shared/types.js";
 import { isDirectExecution, parseCliArgs, reportCliError } from "./lib/cli.js";
 import { readTopicSeed } from "./lib/topics.js";
@@ -29,34 +31,7 @@ export interface ScoreResult {
   stoppedForBudget: boolean;
 }
 
-const KIND_LABELS: Record<NormalizedTweet["kind"], string> = {
-  original: "원글",
-  reply: "답글",
-  self_reply: "자기 트윗에 이어 단 답글",
-  quote: "인용",
-};
-
-const MEDIA_LABELS: Record<string, string> = {
-  photo: "사진",
-  video: "영상",
-  animated_gif: "움짤",
-};
-
-const INPUT_PRICE_PER_MILLION = 0.042;
-
-export function buildState(tweet: NormalizedTweet): string {
-  const lines = [`작성일: ${tweet.date_kst}`, `종류: ${KIND_LABELS[tweet.kind]}`];
-  if (tweet.parent?.text) lines.push(`원글: ${tweet.parent.text}`);
-  if (tweet.quoted?.text) lines.push(`인용한 글: ${tweet.quoted.text}`);
-  lines.push(`트윗: ${tweet.text}`);
-  const counts = new Map<string, number>();
-  for (const media of tweet.media ?? []) {
-    const label = MEDIA_LABELS[media.type] ?? "미디어";
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-  if (counts.size > 0) lines.push(`첨부: ${[...counts].map(([label, count]) => `${label} ${count}개`).join(", ")}`);
-  return lines.join("\n");
-}
+export { buildState } from "../src/shared/tweet-state.js";
 
 export function buildPayload(tweet: NormalizedTweet, topicSeed: TopicSeedConfig = TOPIC_SEED): JevPayload {
   const questions = Object.fromEntries(topicSeed.topics.map((topic) => [topic.id, {
@@ -127,8 +102,8 @@ export async function runScore(options: ScoreOptions): Promise<ScoreResult> {
     while (nextIndex < candidates.length) {
       const tweet = candidates[nextIndex];
       const payload = buildPayload(tweet, topicSeed);
-      const estimatedCostUsd = estimateInputTokens(payload) * INPUT_PRICE_PER_MILLION / 1_000_000;
-      const spentUsd = spentTokens * INPUT_PRICE_PER_MILLION / 1_000_000;
+      const estimatedCostUsd = estimateInputTokens(payload) * JEV_USD_PER_MILLION_INPUT / 1_000_000;
+      const spentUsd = spentTokens * JEV_USD_PER_MILLION_INPUT / 1_000_000;
       if (spentUsd + reservedCostUsd + estimatedCostUsd > options.maxUsd) {
         stoppedForBudget = true;
         return;

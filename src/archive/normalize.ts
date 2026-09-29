@@ -1,4 +1,5 @@
 import type { NormalizedTweet, TweetContext, TweetKind, TweetMedia } from "../shared/types.js";
+import { normalizeTweetText, type TweetUrlEntity } from "../shared/tweet-text.js";
 
 interface RawTweet {
   [key: string]: unknown;
@@ -7,22 +8,6 @@ interface RawTweet {
 interface ArchiveAccount {
   id: string;
   username: string;
-}
-
-function decodeEntities(value: string): string {
-  const named: Record<string, string> = {
-    amp: "&",
-    apos: "'",
-    gt: ">",
-    lt: "<",
-    quot: '"',
-    nbsp: "\u00a0",
-  };
-  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, name: string) => {
-    if (name.startsWith("#x")) return String.fromCodePoint(Number.parseInt(name.slice(2), 16));
-    if (name.startsWith("#")) return String.fromCodePoint(Number.parseInt(name.slice(1), 10));
-    return named[name.toLowerCase()] ?? entity;
-  });
 }
 
 function parseAssignment(content: Uint8Array): unknown[] {
@@ -87,7 +72,7 @@ function rawTweets(files: Map<string, Uint8Array>): RawTweet[] {
   return tweetPaths.flatMap((path) => parseAssignment(files.get(path)!).map((record) => recordValue(record, "tweet") ?? {}));
 }
 
-function expandedUrls(tweet: RawTweet): Array<{ url?: string; expanded_url?: string }> {
+function expandedUrls(tweet: RawTweet): TweetUrlEntity[] {
   const entities = tweet.entities;
   if (!entities || typeof entities !== "object") return [];
   const urls = (entities as Record<string, unknown>).urls;
@@ -113,7 +98,6 @@ function linkedStatusId(tweet: RawTweet, text: string): string | undefined {
 }
 
 function normalizeText(tweet: RawTweet, expandedText: string): string {
-  let text = decodeEntities(expandedText);
   const mediaUrls = new Set(mediaSource(tweet).map((media) => stringValue(media.url)).filter((url): url is string => Boolean(url)));
   const entities = tweet.entities;
   if (entities && typeof entities === "object") {
@@ -127,12 +111,7 @@ function normalizeText(tweet: RawTweet, expandedText: string): string {
       }
     }
   }
-  for (const url of expandedUrls(tweet)) {
-    if (!url.url) continue;
-    text = text.split(url.url).join(mediaUrls.has(url.url) ? "" : (url.expanded_url ?? url.url));
-  }
-  for (const url of mediaUrls) text = text.split(url).join("");
-  return text.trim();
+  return normalizeTweetText(expandedText, expandedUrls(tweet), mediaUrls);
 }
 
 function tweetKind(tweet: RawTweet, accountId: string, text: string): TweetKind {

@@ -71,6 +71,8 @@ Worker 설정은 `wrangler.toml`의 공통 기본값, 인스턴스별 바인딩�
 | `OWNER_SERVICE_TOKEN_IDS` | 소유자 Access 서비스 토큰 client ID 쉼표 목록 |
 | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` | Access JWT issuer 도메인과 허용 audience 쉼표 목록 |
 | `SCORE_BATCH` | 주제 재채점 예상 시간 계산에 쓰는 분당 처리량 |
+| `X_USER_ID` | 수집할 X 계정의 숫자 사용자 ID |
+| `JEV_MONTHLY_USD_CAP` | Worker 채점의 월별 Jev 입력 비용 상한 (USD) |
 
 로컬 개발용 예시이며 값은 모두 가짜입니다:
 
@@ -83,9 +85,17 @@ OWNER_SERVICE_TOKEN_IDS = "example-client-id"
 ACCESS_TEAM_DOMAIN = "example.cloudflareaccess.com"
 ACCESS_AUD = "example-audience"
 SCORE_BATCH = "400"
+X_USER_ID = ""
+JEV_MONTHLY_USD_CAP = "5"
 ```
 
 `.dev.vars`에서 `DEV_OWNER=1`을 설정하면 로컬에서만 소유자 화면을 확인할 수 있습니다. 이 변수를 `wrangler.toml`에 넣지 마세요.
+
+## 자동 수집과 채점
+
+Worker는 30분마다 X API에서 새 트윗을 최대 5페이지까지 가져오고, 매분 현재 버전 점수가 빠진 주제를 채점합니다. 최초 실행은 아카이브 적재 때 저장한 `max_tweet_id` 뒤부터 시작하며, 그 값도 없으면 최근 트윗 100개를 가져옵니다. 월별 Jev 비용이 `JEV_MONTHLY_USD_CAP`에 도달하면 해당 월의 채점을 멈춥니다.
+
+`.dev.vars` 또는 Worker secrets에는 `X_BEARER_TOKEN`, `TYPESAFE_BASE_URL`, `TYPESAFE_API_KEY`를 설정합니다. `X_USER_ID`와 비용 상한은 일반 Worker 변수로 둡니다.
 
 ## 아카이브 등록
 
