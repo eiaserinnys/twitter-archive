@@ -45,9 +45,9 @@ paintTheme();
 function paintHeader() {
   const meta = context.meta;
   $('siteTitle').textContent = meta.site_title;
-  document.title = meta.site_title;
   $('handleLink').textContent = `@${meta.account_handle}`;
   $('handleLink').href = `https://x.com/${encodeURIComponent(meta.account_handle)}`;
+  document.title = `@${meta.account_handle} ${meta.site_title}`;
   if (meta.first_date) $('since').textContent = `, ${+meta.first_date.slice(0, 4)}년 ${+meta.first_date.slice(5, 7)}월부터`;
   $('fullSize').textContent = meta.total_tweets.toLocaleString('ko-KR');
   if (meta.last_collected_at) {
