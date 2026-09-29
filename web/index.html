@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko" data-theme="dark" data-design="hip">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>트윗 아카이브</title>
+<meta name="description" content="연도와 주제로 보는 트윗 아카이브">
+<meta name="theme-color" content="#0A0A0A">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap">
+<link rel="stylesheet" href="/assets/styles.css">
+<script>
+  const theme = localStorage.getItem("ta-hip-theme");
+  if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+</script>
+</head>
+<body>
+<div class="visitor-bar" id="visitorBar" hidden><span><b>VISITOR</b> 방문자 화면 미리보기 중</span><button type="button" id="visOff">미리보기 끄기</button></div>
+<div class="shell">
+<header class="mast">
+  <div class="mast-top">
+    <span class="tag" id="brandTag">ARCHIVE</span>
+    <div class="mast-actions">
+      <button class="theme-btn" id="setBtn" type="button" aria-haspopup="dialog" hidden>설정</button>
+      <button class="theme-btn" id="themeBtn" type="button"></button>
+    </div>
+  </div>
+  <h1><span id="siteTitle">트윗 아카이브</span><span class="cursor" aria-hidden="true"></span></h1>
+  <p class="handle"><a id="handleLink" href="https://x.com" target="_blank" rel="noopener noreferrer"></a><span id="since"></span></p>
+  <dl class="stats">
+    <div><dt>전체 트윗</dt><dd id="fullSize">…</dd></div>
+    <div><dt>마지막 수집</dt><dd><span class="live-dot" aria-hidden="true"></span><span id="collected"></span></dd></div>
+  </dl>
+  <form class="search" id="searchForm" role="search" autocomplete="off">
+    <span class="prompt" aria-hidden="true">&gt;</span>
+    <label class="sr-only" for="q">트윗 검색</label>
+    <input id="q" type="search" placeholder="기억나는 대로 적어 보세요" enterkeyhint="search" spellcheck="false">
+    <button class="clear-q" id="clearQ" type="button" aria-label="검색어 지우기">×</button>
+    <kbd aria-hidden="true">/</kbd>
+  </form>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="보기">
+  <button class="tab" role="tab" id="t-timeline" aria-controls="p-timeline" aria-selected="true" data-tab="timeline"><b>01</b>연표</button>
+  <button class="tab" role="tab" id="t-search" aria-controls="p-search" aria-selected="false" data-tab="search" tabindex="-1"><b>02</b>검색</button>
+  <button class="tab" role="tab" id="t-today" aria-controls="p-today" aria-selected="false" data-tab="today" tabindex="-1"><b>03</b>오늘</button>
+</nav>
+
+<main>
+  <!-- 연표 -->
+  <section class="tabpanel" role="tabpanel" id="p-timeline" aria-labelledby="t-timeline">
+    <div class="tl">
+      <div class="tl-main">
+        <div id="allView">
+          <div class="sec-head">
+            <h2><span class="idx">01 / TIMELINE</span>연표</h2>
+            <p>연도 <span id="yearCount"></span> × 주제 <span class="tcount"></span><br>칸 숫자 = 트윗 수</p>
+          </div>
+          <div class="tl-tools"><button class="btn" id="recentBtn" type="button">최근 트윗 20개 <span class="arr">→</span></button></div>
+          <div class="grid-wrap">
+            <table class="grid" id="grid">
+              <caption class="sr-only">연도별 주제별 트윗 수. 칸을 누르면 그 해 그 주제의 트윗 목록, 연도를 누르면 그 해의 월 연표가 열립니다.</caption>
+              <colgroup></colgroup>
+              <thead><tr></tr></thead><tbody></tbody>
+            </table>
+          </div>
+          <div class="tagstrip" id="allTags"></div>
+          <div class="legend"><span class="label">트윗 수</span><ul class="ramp" aria-label="칸 진하기 범례"></ul><span class="hint">연도를 누르면 그 해의 월 연표</span></div>
+          <p class="foot" id="tlFoot"></p>
+        </div>
+        <div id="yearView" hidden>
+          <nav class="crumbs" aria-label="연표 위치">
+            <button class="crumb" id="yvBack" type="button"><span class="arr">←</span>전체 기간</button>
+            <span class="crumb-sep" aria-hidden="true">/</span><span class="crumb-cur" id="yvCrumb" aria-current="page"></span>
+          </nav>
+          <div class="sec-head"><h2><span class="idx">01 / TIMELINE / MONTHS</span><span id="yvTitle"></span></h2><p id="yvSub"></p></div>
+          <div class="yv-tools">
+            <button class="btn" id="yvPrev" type="button"><span class="arr">←</span><span class="lab"></span></button>
+            <button class="btn" id="yvNext" type="button"><span class="lab"></span><span class="arr">→</span></button>
+            <button class="btn wide" id="yearAllBtn" type="button"></button>
+          </div>
+          <div class="grid-wrap">
+            <table class="grid" id="mgrid">
+              <caption class="sr-only">월별 주제별 트윗 수. 칸을 누르면 그 달 그 주제, 월을 누르면 그 달 전체, 주제를 누르면 그 해 그 주제 전체 목록이 열립니다.</caption>
+              <colgroup></colgroup>
+              <thead><tr></tr></thead><tbody></tbody>
+            </table>
+          </div>
+          <div class="tagstrip" id="yearTags"></div>
+          <div class="legend"><span class="label">트윗 수</span><ul class="ramp" aria-label="칸 진하기 범례"></ul></div>
+          <p class="foot" id="yvFoot"></p>
+        </div>
+      </div>
+      <div class="scrim" id="scrim" hidden></div>
+      <aside class="panel" id="panel" aria-labelledby="pTitle">
+        <div class="panel-head" id="panelHead">
+          <span class="grabber" aria-hidden="true"></span>
+          <div class="p-kicker" id="pKicker"></div>
+          <h3 class="p-title" id="pTitle" tabindex="-1"></h3>
+          <p class="p-sub" id="pSub"></p>
+          <div class="p-extra" id="pExtra" hidden></div>
+          <div class="p-nav">
+            <button class="btn" id="prevBtn" type="button"><span class="arr">←</span><span id="prevYr"></span></button>
+            <button class="btn" id="nextBtn" type="button"><span id="nextYr"></span><span class="arr">→</span></button>
+          </div>
+          <button class="p-close" id="closeBtn" type="button" aria-label="목록 닫기">×</button>
+        </div>
+        <div class="panel-body" id="panelBody"><ul class="feed" id="feed"></ul></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 검색 -->
+  <section class="tabpanel" role="tabpanel" id="p-search" aria-labelledby="t-search" hidden>
+    <div class="sr">
+      <div class="sr-side">
+        <div class="sec-head"><h2><span class="idx">02 / SEARCH</span>검색</h2><p>기억나는 말로<br>뜻 검색</p></div>
+        <p class="intro">기억나는 문장이나 단어를 적어 보세요.</p>
+        <ul class="ex-list" id="exList"></ul>
+        <details class="filters" id="filters">
+          <summary><span>필터<span class="fcount" id="fCount"></span></span><span class="plus" aria-hidden="true">+</span></summary>
+          <div class="fbody">
+            <fieldset><legend class="label">주제 (여러 개)</legend><div class="toggles" id="fTopics"></div></fieldset>
+            <fieldset><legend class="label">연도 범위</legend>
+              <div class="yr-range"><label class="sr-only" for="fFrom">시작 연도</label><select id="fFrom"></select><span class="mono">~</span><label class="sr-only" for="fTo">끝 연도</label><select id="fTo"></select></div>
+            </fieldset>
+            <fieldset><legend class="label">종류</legend><div class="toggles" id="fKinds"></div></fieldset>
+            <button class="btn freset" id="fReset" type="button">필터 풀기</button>
+          </div>
+        </details>
+      </div>
+      <div class="sr-main" id="srMain" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- 오늘 -->
+  <section class="tabpanel" role="tabpanel" id="p-today" aria-labelledby="t-today" hidden>
+    <div class="td">
+      <div class="td-head">
+        <div class="sec-head"><h2 id="tdTitle"><span class="idx">03 / ON THIS DAY</span><span id="tdTitleText">N년 전 오늘</span></h2><p id="tdSub"></p></div>
+        <div class="td-switch" role="group" aria-label="오늘 보기 방식">
+          <button type="button" id="vStack" aria-pressed="true">해마다 쌓기</button>
+          <button type="button" id="vCal" aria-pressed="false">달력</button>
+        </div>
+        <div class="td-tools">
+          <button class="btn acid" id="randomBtn" type="button">아무 날이나 <span class="arr">↻</span></button>
+          <button class="btn" id="backToday" type="button" hidden>오늘로 <span class="arr">↩</span></button>
+        </div>
+      </div>
+      <div class="td-cal-wrap" id="calWrap" hidden>
+        <div class="cal" id="cal"></div>
+      </div>
+      <div class="td-stack-wrap" id="stackWrap">
+        <ul class="stack" id="stack"></ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <span id="footNote"></span>
+  <span id="ownerLinkWrap" hidden><a href="/owner">소유자 로그인</a></span>
+</footer>
+</div>
+
+<dialog class="settings" id="settings" aria-labelledby="setTitle">
+  <div class="set-head">
+    <h2 id="setTitle" tabindex="-1" autofocus><span class="idx">SETTINGS</span>설정</h2>
+    <button class="set-close" id="setClose" type="button" aria-label="설정 닫기">×</button>
+  </div>
+  <div class="set-body">
+    <div class="vis-switch">
+      <div><b>방문자 화면으로 보기</b><span>나만 주제와 나만 태그가 빠진, 방문자가 보는 화면을 미리 봅니다.</span></div>
+      <button class="switch" id="visSwitch" type="button" role="switch" aria-checked="false" aria-label="방문자 화면으로 보기"><i></i></button>
+    </div>
+    <div class="set-tabs" role="group" aria-label="설정 절">
+      <button type="button" id="stTopics" aria-pressed="true">주제 <b id="stTopicsN"></b></button>
+      <button type="button" id="stTags" aria-pressed="false">기간 태그 <b id="stTagsN"></b></button>
+    </div>
+    <section class="set-sec" id="secTopics">
+      <div class="set-sec-head"><h3>주제</h3><button class="btn acid" id="topicAdd" type="button">주제 추가 <span class="arr">+</span></button></div>
+      <p class="set-note">트윗마다 아래 문구에 맞는 정도를 0~1로 매겨 표시 기준 이상이면 그 주제로 셉니다. 연표 표시와 검색을 따로 정합니다. <b>나만</b>은 방문자 화면에서 빠지고, <b>숨김</b>은 내 화면에서도 빠집니다. 트윗 자체는 날짜로 보는 오늘 탭에서 누구에게나 그대로 보입니다.</p>
+      <form class="tform" id="topicForm" hidden novalidate>
+        <h4 class="tform-title" id="tpTitle">새 주제</h4>
+        <label class="f"><span class="fl">표시 이름</span><input type="text" id="tpName" maxlength="40" autocomplete="off" required></label>
+        <label class="f"><span class="fl">Jev에 묻는 문구</span><textarea id="tpPrompt" rows="3" maxlength="200" placeholder="주제에 해당하는 트윗을 설명해 주세요"></textarea></label>
+        <p class="f-err" id="tpErr" role="alert" hidden></p>
+        <div class="f-actions"><button class="btn acid" type="submit">저장</button><button class="btn" id="tpCancel" type="button">취소</button></div>
+      </form>
+      <ul class="toprows" id="topicList"></ul>
+    </section>
+    <section class="set-sec" id="secTags" hidden>
+    <div class="set-sec-head"><h3>기간 태그</h3><button class="btn acid" id="tagAdd" type="button">태그 추가 <span class="arr">+</span></button></div>
+    <p class="set-note">연표 옆에 보일 기간을 직접 붙입니다. 경력, 즐긴 게임, 본 영상, 읽은 책 같은 것. 전체 기간 연표에는 12개월 이상인 태그만 막대로, 월 연표에는 그 해와 겹치는 태그가 모두 나옵니다. </p>
+    <form class="tform" id="tagForm" hidden novalidate>
+      <h4 class="tform-title" id="tfTitle">새 태그</h4>
+      <label class="f"><span class="fl">이름</span><input type="text" id="fName" maxlength="40" autocomplete="off" required></label>
+      <fieldset><legend class="fl">종류</legend><div class="kinds" id="fKindsSet"></div></fieldset>
+      <fieldset><legend class="fl">시작 (년월, 일은 선택)</legend>
+        <div class="dates"><label class="sr-only" for="fStartM">시작 년월</label><input type="month" id="fStartM" placeholder="2024-03" required><label class="sr-only" for="fStartD">시작 일</label><input type="number" id="fStartD" min="1" max="31" inputmode="numeric" placeholder="일"></div>
+      </fieldset>
+      <fieldset><legend class="fl">끝 (년월, 일은 선택)</legend>
+        <div class="dates"><label class="sr-only" for="fEndM">끝 년월</label><input type="month" id="fEndM" placeholder="2024-03"><label class="sr-only" for="fEndD">끝 일</label><input type="number" id="fEndD" min="1" max="31" inputmode="numeric" placeholder="일"></div>
+        <label class="ongo"><input type="checkbox" id="fOngoing">진행 중</label>
+      </fieldset>
+      <label class="f"><span class="fl">메모</span><textarea id="fMemo" rows="3" maxlength="300"></textarea></label>
+      <fieldset><legend class="fl">공개 여부</legend><div class="kinds" id="fVisSet">
+        <label><input type="radio" name="tvis" value="public" checked><span>공개</span></label>
+        <label><input type="radio" name="tvis" value="owner"><span class="lk">나만</span></label>
+      </div></fieldset>
+      <p class="f-err" id="fErr" role="alert" hidden></p>
+      <div class="f-actions"><button class="btn acid" type="submit">저장</button><button class="btn" id="fCancel" type="button">취소</button></div>
+    </form>
+    <div id="tagList"></div>
+    </section>
+  </div>
+</dialog>
+
+<dialog class="confirm" id="confirmDlg" aria-labelledby="cfTitle">
+  <h3 id="cfTitle"></h3>
+  <p id="cfMsg"></p>
+  <div class="f-actions"><button class="btn acid" id="cfOk" type="button"></button><button class="btn" id="cfNo" type="button">취소</button></div>
+</dialog>
+
+<script type="module" src="/assets/app.js"></script>
+</body>
+</html>
