@@ -62,6 +62,31 @@ A self-hosted archive for a single X account. Browse by year and topic, search b
 | Cloudflare Access | 접근 제한. 사이트를 비공개로 두거나, 공개하면서 설정 화면만 소유자에게 열 때 씁니다 |
 | 등록 스크립트 (`scripts/`) | Node 22, tsx로 실행 |
 
+Worker 설정은 `wrangler.toml`의 공통 기본값, 인스턴스별 바인딩은 커밋하지 않는 `wrangler.local.toml`, 비밀값은 Cloudflare secrets 또는 `.dev.vars`에 둡니다. `wrangler.local.toml`에는 해당 배포의 D1 database ID와 R2 bucket 이름을 지정합니다.
+
+| 변수 | 용도 |
+|---|---|
+| `SITE_TITLE`, `ACCOUNT_HANDLE` | 화면 제목과 아카이브 계정명 (`@` 제외) |
+| `OWNER_EMAILS` | 소유자 이메일 쉼표 목록 |
+| `OWNER_SERVICE_TOKEN_IDS` | 소유자 Access 서비스 토큰 client ID 쉼표 목록 |
+| `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` | Access JWT issuer 도메인과 허용 audience 쉼표 목록 |
+| `SCORE_BATCH` | 주제 재채점 예상 시간 계산에 쓰는 분당 처리량 |
+
+로컬 개발용 예시이며 값은 모두 가짜입니다:
+
+```toml
+[vars]
+SITE_TITLE = "Example Archive"
+ACCOUNT_HANDLE = "example"
+OWNER_EMAILS = "owner@example.invalid"
+OWNER_SERVICE_TOKEN_IDS = "example-client-id"
+ACCESS_TEAM_DOMAIN = "example.cloudflareaccess.com"
+ACCESS_AUD = "example-audience"
+SCORE_BATCH = "400"
+```
+
+`.dev.vars`에서 `DEV_OWNER=1`을 설정하면 로컬에서만 소유자 화면을 확인할 수 있습니다. 이 변수를 `wrangler.toml`에 넣지 마세요.
+
 ## 아카이브 등록
 
 X 설정의 "데이터 아카이브 다운로드"로 받은 zip을 준비합니다. 스크립트는 작업 데이터를 `--data-dir`(기본 `./data`, 커밋 제외)에만 씁니다. 로컬 확인은 `--local`, 실제 배포 대상은 `--remote`입니다.
@@ -89,6 +114,7 @@ npx tsx scripts/upload-media.ts --archive <zip 또는 풀린 폴더> --data-dir 
 ```
 
 3번과 4번은 처리한 트윗을 건너뛰므로 중간에 멈춰도 다시 실행하면 이어집니다.
+`score.ts`와 `load-d1.ts`에는 인스턴스별 주제 설정 파일을 `--topics <path>`로 지정할 수 있습니다. 생략하면 `src/shared/topics.json`을 사용합니다.
 
 | 환경변수 | 용도 |
 |---|---|

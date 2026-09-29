@@ -1,0 +1,104 @@
+import { Hono } from "hono";
+import { getTweetStats } from "../db/meta.js";
+import { getTopic, getTopicInfo, listTopicRows, type TopicInfo } from "../db/topics.js";
+import type { Env } from "../env.js";
+import type { Viewer } from "../auth.js";
+import { randomId } from "../ids.js";
+import type { AppContext } from "./helpers.js";
+import { invalid, isVisibility, ownerJsonBody, ownerOnly } from "./helpers.js";
+
+const route = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
+
+function validText(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.trim().length >= 1 && value.length <= maxLength;
+}
+
+function rescoreEstimate(tweets: number, scoreBatch: string) {
+  return {
+    tweets,
+    est_usd: tweets * 400 * 0.042 / 1_000_000,
+    est_minutes: Math.ceil(tweets / Number(scoreBatch)),
+  };
+}
+
+async function ownerTopicInfo(context: AppContext, id: string): Promise<TopicInfo | null> {
+  return getTopicInfo(context.env.DB, id);
+}
+
+route.post("/api/topics", async (context: AppContext) => {
+  const parsed = await ownerJsonBody(context);
+  if ("response" in parsed) return parsed.response;
+  const body = parsed.body;
+  if (!validText(body.label, 40) || !validText(body.question, 200)
+    || !isVisibility(body.timeline_visibility) || !isVisibility(body.search_visibility)) {
+    return invalid(context, "Topic fields are invalid.");
+  }
+  const rows = await listTopicRows(context.env.DB);
+  const sortOrder = Math.max(0, ...rows.map((row) => row.sort_order)) + 1;
+  const id = randomId("t_");
+  const version = String(Date.now());
+  await context.env.DB.prepare(`
+    INSERT INTO topics (id, label, question, version, sort_order, active,
+      timeline_visibility, search_visibility)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+  `).bind(id, body.label, body.question, version, sortOrder,
+    body.timeline_visibility, body.search_visibility).run();
+  const [topic, stats] = await Promise.all([
+    ownerTopicInfo(context, id),
+    getTweetStats(context.env.DB),
+  ]);
+  if (!topic) throw new Error("Created topic was not found.");
+  return context.json({ topic, rescore_estimate: rescoreEstimate(stats.total_tweets, context.env.SCORE_BATCH) }, 201);
+});
+
+route.patch("/api/topics/:id", async (context: AppContext) => {
+  const parsed = await ownerJsonBody(context);
+  if ("response" in parsed) return parsed.response;
+  const current = await getTopic(context.env.DB, context.req.param("id") ?? "");
+  if (!current || !current.active) return context.json({ error: "not_found" }, 404);
+  const body = parsed.body;
+  if (("label" in body && !validText(body.label, 40))
+    || ("question" in body && !validText(body.question, 200))
+    || ("timeline_visibility" in body && !isVisibility(body.timeline_visibility))
+    || ("search_visibility" in body && !isVisibility(body.search_visibility))
+    || ("sort_order" in body && (typeof body.sort_order !== "number" || !Number.isInteger(body.sort_order)))) {
+    return invalid(context, "Topic fields are invalid.");
+  }
+  const columns: Array<[string, string]> = [
+    ["label", "label"],
+    ["question", "question"],
+    ["timeline_visibility", "timeline_visibility"],
+    ["search_visibility", "search_visibility"],
+    ["sort_order", "sort_order"],
+  ];
+  const updates = columns.filter(([key]) => key in body);
+  const questionChanged = typeof body.question === "string" && body.question !== current.question;
+  if (questionChanged) updates.push(["version", "version"]);
+  if (updates.length > 0) {
+    const values = updates.map(([key]) => key === "version" ? String(Date.now()) : body[key]);
+    const setClause = updates.map(([, column]) => `${column} = ?`).join(", ");
+    await context.env.DB.prepare(`UPDATE topics SET ${setClause} WHERE id = ?`)
+      .bind(...values, current.id).run();
+  }
+  const [topic, stats] = await Promise.all([
+    ownerTopicInfo(context, current.id),
+    getTweetStats(context.env.DB),
+  ]);
+  if (!topic) throw new Error("Updated topic was not found.");
+  return context.json({
+    topic,
+    rescored: questionChanged,
+    rescore_estimate: rescoreEstimate(stats.total_tweets, context.env.SCORE_BATCH),
+  });
+});
+
+route.delete("/api/topics/:id", async (context: AppContext) => {
+  const denied = ownerOnly(context);
+  if (denied) return denied;
+  const result = await context.env.DB.prepare("UPDATE topics SET active = 0 WHERE id = ?")
+    .bind(context.req.param("id") ?? "").run();
+  if (!result.meta.changes) return context.json({ error: "not_found" }, 404);
+  return context.json({ ok: true });
+});
+
+export default route;
