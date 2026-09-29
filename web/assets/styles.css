@@ -82,9 +82,10 @@ a { color: inherit; }
 }
 .theme-btn:hover { background: var(--ink); color: var(--bg); }
 .mast h1 {
-  margin: 20px var(--pad) 0; font-size: clamp(46px, 13.6vw, 96px); line-height: .9; font-weight: 900;
-  letter-spacing: -0.065em; text-wrap: balance;
+  margin: 20px var(--pad) 0; font-size: clamp(32px, 12.5vw, 80px); line-height: .9; font-weight: 900;
+  letter-spacing: -0.065em; text-wrap: balance; overflow-wrap: anywhere;
 }
+.mast h1 a { color: inherit; text-decoration: none; }
 .cursor {
   display: inline-block; width: .38em; height: .74em; margin-left: .08em; vertical-align: -0.02em;
   background: var(--acid); animation: blink 1.1s steps(1, end) infinite;
@@ -92,8 +93,6 @@ a { color: inherit; }
 :root[data-theme="light"] .cursor { background: var(--ink); }
 @keyframes blink { 50% { opacity: 0; } }
 .handle { margin: 16px var(--pad) 0; font-size: 17px; font-weight: 600; color: var(--ink-2); }
-.handle a { color: var(--ink); text-decoration: none; background: linear-gradient(var(--acid), var(--acid)) 0 100% / 100% 2px no-repeat; }
-:root[data-theme="light"] .handle a { background-image: linear-gradient(var(--ink), var(--ink)); }
 .stats { display: grid; grid-template-columns: auto 1fr; margin: 24px 0 0; border-top: 1px solid var(--line); }
 .stats > div { padding: 14px var(--pad) 16px; min-width: 0; }
 .stats > div + div { padding-left: 20px; }
