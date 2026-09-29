@@ -14,6 +14,10 @@ function validText(value: unknown, maxLength: number): value is string {
   return typeof value === "string" && value.trim().length >= 1 && value.length <= maxLength;
 }
 
+function isPublicHideThreshold(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1);
+}
+
 function rescoreEstimate(tweets: number, scoreBatch: string) {
   return {
     tweets,
@@ -45,7 +49,8 @@ route.post("/api/topics", async (context: AppContext) => {
   if ("response" in parsed) return parsed.response;
   const body = parsed.body;
   if (!validText(body.label, 40) || !validText(body.question, 200)
-    || !isVisibility(body.timeline_visibility) || !isVisibility(body.search_visibility)) {
+    || !isVisibility(body.timeline_visibility) || !isVisibility(body.search_visibility)
+    || ("public_hide_threshold" in body && !isPublicHideThreshold(body.public_hide_threshold))) {
     return invalid(context, "Topic fields are invalid.");
   }
   const rows = await listTopicRows(context.env.DB);
@@ -54,14 +59,14 @@ route.post("/api/topics", async (context: AppContext) => {
   const version = String(Date.now());
   await runBatch(context, [context.env.DB.prepare(`
     INSERT INTO topics (id, label, question, version, sort_order, active,
-      timeline_visibility, search_visibility)
-    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+      timeline_visibility, search_visibility, public_hide_threshold)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
   `).bind(id, body.label, body.question, version, sortOrder,
-    body.timeline_visibility, body.search_visibility), rescoreStatement(context, id, version),
+    body.timeline_visibility, body.search_visibility, body.public_hide_threshold ?? null), rescoreStatement(context, id, version),
   dataVersionStatement(context.env.DB)]);
   const [topic, stats] = await Promise.all([
     ownerTopicInfo(context, id),
-    getTweetStats(context.env.DB),
+    getTweetStats(context.env.DB, context.get("viewer")),
   ]);
   if (!topic) throw new Error("Created topic was not found.");
   return context.json({ topic, rescore_estimate: rescoreEstimate(stats.total_tweets, context.env.SCORE_BATCH) }, 201);
@@ -77,6 +82,7 @@ route.patch("/api/topics/:id", async (context: AppContext) => {
     || ("question" in body && !validText(body.question, 200))
     || ("timeline_visibility" in body && !isVisibility(body.timeline_visibility))
     || ("search_visibility" in body && !isVisibility(body.search_visibility))
+    || ("public_hide_threshold" in body && !isPublicHideThreshold(body.public_hide_threshold))
     || ("sort_order" in body && (typeof body.sort_order !== "number" || !Number.isInteger(body.sort_order)))) {
     return invalid(context, "Topic fields are invalid.");
   }
@@ -85,6 +91,7 @@ route.patch("/api/topics/:id", async (context: AppContext) => {
     ["question", "question"],
     ["timeline_visibility", "timeline_visibility"],
     ["search_visibility", "search_visibility"],
+    ["public_hide_threshold", "public_hide_threshold"],
     ["sort_order", "sort_order"],
   ];
   const updates = columns.filter(([key]) => key in body);
@@ -105,7 +112,7 @@ route.patch("/api/topics/:id", async (context: AppContext) => {
   }
   const [topic, stats] = await Promise.all([
     ownerTopicInfo(context, current.id),
-    getTweetStats(context.env.DB),
+    getTweetStats(context.env.DB, context.get("viewer")),
   ]);
   if (!topic) throw new Error("Updated topic was not found.");
   return context.json({

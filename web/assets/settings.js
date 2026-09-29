@@ -67,6 +67,9 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
       });
       actions.append(edit, remove); head.append(actions); row.append(head);
       row.append(el('p', 'prompt', topic.question || ''));
+      if (topic.public_hide_threshold !== undefined && topic.public_hide_threshold !== null) {
+        row.append(el('p', 'hide-threshold', `공개 버전 숨김 점수 ${topic.public_hide_threshold}`));
+      }
       row.append(segmented('연표', topic.timeline_visibility, value => patchTopic(topic, { timeline_visibility: value })));
       row.append(segmented('검색', topic.search_visibility, value => patchTopic(topic, { search_visibility: value })));
       const scored = topic.scored || 0, total = ctx.meta.total_tweets;
@@ -75,12 +78,14 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     });
     $('topicList').replaceChildren(fragment);
     $('stTopicsN').textContent = ctx.meta.topics.length;
+    $('hiddenCount').textContent = ctx.meta.public_hidden_count.toLocaleString('ko-KR');
   }
 
   function openTopicForm(topic) {
     editingTopic = topic?.id || null;
     $('tpTitle').textContent = topic ? '주제 수정' : '새 주제';
     $('tpName').value = topic?.label || ''; $('tpPrompt').value = topic?.question || '';
+    $('tpHide').value = topic?.public_hide_threshold ?? '';
     $('tpErr').hidden = true; topicForm.hidden = false;
     requestAnimationFrame(() => { topicForm.scrollIntoView({ block: 'start' }); $('tpName').focus({ preventScroll: true }); });
   }
@@ -92,13 +97,19 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     const label = $('tpName').value.trim(), question = $('tpPrompt').value.trim();
     const fail = message => { $('tpErr').textContent = message; $('tpErr').hidden = false; };
     if (!label || !question) { fail('이름과 문구를 모두 적어 주세요.'); return; }
+    const rawHide = $('tpHide').value.trim();
+    const public_hide_threshold = rawHide === '' ? null : Number(rawHide);
+    if (public_hide_threshold !== null
+      && (!Number.isFinite(public_hide_threshold) || public_hide_threshold < 0 || public_hide_threshold > 1)) {
+      fail('공개 숨김 점수는 비우거나 0부터 1 사이로 입력해 주세요.'); return;
+    }
     const previous = ctx.meta.topics.find(topic => topic.id === editingTopic);
     if (!previous) {
       if (!await confirmBox(`‘${label}’ 주제를 추가할까요?`, estimateText(), '추가하고 채점')) return;
-      await write('POST', '/api/topics', { label, question, timeline_visibility: 'public', search_visibility: 'public' });
+      await write('POST', '/api/topics', { label, question, timeline_visibility: 'public', search_visibility: 'public', public_hide_threshold });
     } else {
       if (question !== previous.question && !await confirmBox(`‘${label}’ 문구를 바꿀까요?`, estimateText(), '바꾸고 다시 채점')) return;
-      await write('PATCH', `/api/topics/${encodeURIComponent(previous.id)}`, { label, question });
+      await write('PATCH', `/api/topics/${encodeURIComponent(previous.id)}`, { label, question, public_hide_threshold });
     }
     closeTopicForm(); await refreshData(); renderTopics();
   });

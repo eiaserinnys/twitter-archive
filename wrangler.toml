@@ -2,6 +2,9 @@ name = "twitter-archive"
 main = "src/worker/index.ts"
 compatibility_date = "2026-09-29"
 
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [triggers]
 crons = ["*/30 * * * *", "* * * * *"]
 
@@ -22,6 +25,7 @@ ACCESS_AUD = ""
 SCORE_BATCH = "400"
 X_USER_ID = ""
 JEV_MONTHLY_USD_CAP = "5"
+SOURCE_URL = "https://github.com/eiaserinnys/twitter-archive"
 
 [[d1_databases]]
 binding = "DB"

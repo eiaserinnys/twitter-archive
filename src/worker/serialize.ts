@@ -11,6 +11,8 @@ export interface TweetDbRow {
   parent_author: string | null;
   quoted_id: string | null;
   quoted_text: string | null;
+  visibility?: "private" | "public" | null;
+  public_hidden?: number;
 }
 
 export interface MediaDbRow {
@@ -37,6 +39,8 @@ export interface TweetOut {
   media: Array<{ type: MediaType; url: string | null; width: number | null; height: number | null; alt: string | null }>;
   topics: TweetTopicChip[];
   x_url: string;
+  visibility?: "private" | "public" | null;
+  public_hidden?: boolean;
 }
 
 export function serializeTweet(

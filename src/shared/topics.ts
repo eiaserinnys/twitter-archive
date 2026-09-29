@@ -5,6 +5,9 @@ export interface TopicSeed {
   label: string;
   question: string;
   version?: string;
+  timeline_visibility?: "public" | "owner" | "hidden";
+  search_visibility?: "public" | "owner" | "hidden";
+  public_hide_threshold?: number | null;
 }
 
 export interface TopicSeedConfig {

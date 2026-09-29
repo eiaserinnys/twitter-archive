@@ -82,4 +82,21 @@ describe("data-version response cache", () => {
     const versions = [...entries.keys()].map((key) => new URL(key).searchParams.get("v"));
     expect(versions).toEqual(["v1", "v2"]);
   });
+
+  it("uses the Cloudflare deployment version as a cache key component", async () => {
+    const { db, sqlite, reads } = createD1TestDatabase();
+    const { entries } = stubCache();
+    sqlite.prepare("INSERT INTO meta (key, value) VALUES ('data_version', 'v1')").run();
+    const firstEnv = baseTestEnv(db, { CF_VERSION_METADATA: { id: "deploy-1" } });
+    const secondEnv = baseTestEnv(db, { CF_VERSION_METADATA: { id: "deploy-2" } });
+    const timelineReads = () => reads.filter(({ query }) => query.includes("FROM tweets t")).length;
+
+    await get("/api/timeline", firstEnv);
+    expect(timelineReads()).toBe(1);
+    await get("/api/timeline", secondEnv);
+
+    expect(timelineReads()).toBe(2);
+    const versions = [...entries.keys()].map((key) => new URL(key).searchParams.get("cv"));
+    expect(versions).toEqual(["deploy-1", "deploy-2"]);
+  });
 });

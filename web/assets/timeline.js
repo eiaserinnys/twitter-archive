@@ -203,6 +203,7 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
   }
 
   function queryFor(s) {
+    if (s.publicHidden) return { public_hidden: 1 };
     if (s.recent) return { order: 'desc', limit: 20 };
     if (s.tag) {
       const tag = tagById(s.tag), span = tagSpan(tag);
@@ -242,6 +243,13 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
         const edit = el('button', 'btn', '수정'); edit.type = 'button'; edit.addEventListener('click', () => openSettings(tag.id)); actions.append(edit);
       }
       extra.append(actions); extra.hidden = false;
+      return;
+    }
+    if (s.publicHidden) {
+      $('pKicker').textContent = 'OWNER / 공개 숨김';
+      $('pTitle').textContent = '공개에서 숨겨지는 트윗';
+      $('pSub').textContent = `트윗 ${total}개`;
+      $('prevBtn').hidden = $('nextBtn').hidden = true;
       return;
     }
     const name = s.t ? title(s.t) : '전체';
@@ -376,6 +384,11 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
     if (route) navigate('/'); closeSheet(true);
     if (desktop.matches) select({ recent: true });
   }
+
+  function openPublicHidden(route = true) {
+    select({ publicHidden: true });
+    if (route) navigate('/?public_hidden=1');
+  }
   function gridClick(event, month) {
     const button = event.target.closest('button'); if (!button) return;
     if (button.dataset.tag) { select({ tag: button.dataset.tag, all: false }, button); return; }
@@ -405,6 +418,7 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
     openYear,
     closeYear,
     closeSheet,
+    openPublicHidden,
     async goTopic(y, topic) { await openYear(y); select({ y, t: topic }); },
     refresh() { renderAll(); if (year) openYear(year, false); else if (desktop.matches) select({ recent: true }); },
     currentYear: () => year,

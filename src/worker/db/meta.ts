@@ -1,4 +1,6 @@
 import type { D1Database } from "../env.js";
+import type { Viewer } from "../auth.js";
+import { publicHiddenSql } from "../visibility.js";
 
 export interface CacheMeta {
   data_version: string | null;
@@ -40,10 +42,17 @@ export interface TweetStats {
   last_date: string | null;
 }
 
-export async function getTweetStats(db: D1Database): Promise<TweetStats> {
+export async function getTweetStats(db: D1Database, viewer: Viewer): Promise<TweetStats> {
   const result = await db.prepare(`
     SELECT COUNT(*) AS total_tweets, MIN(date_kst) AS first_date, MAX(date_kst) AS last_date
-    FROM tweets
+    FROM tweets t
+    WHERE ${viewer.viewingAs === "visitor" ? `NOT ${publicHiddenSql("t")}` : "1 = 1"}
   `).first<TweetStats>();
   return result ?? { total_tweets: 0, first_date: null, last_date: null };
+}
+
+export async function getPublicHiddenCount(db: D1Database): Promise<number> {
+  const result = await db.prepare(`SELECT COUNT(*) AS count FROM tweets t WHERE ${publicHiddenSql("t")}`)
+    .first<{ count: number }>();
+  return result?.count ?? 0;
 }

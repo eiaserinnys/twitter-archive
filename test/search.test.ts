@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/worker/index.js";
@@ -10,7 +10,7 @@ import { buildRankRequest } from "../src/worker/search/rank.js";
 
 const jevCalls = vi.hoisted(() => ({
   responses: [] as Array<{ answers: Record<string, JevAnswer>; inputTokens: number }>,
-  requests: [] as Array<{ questions: Record<string, { instructions: string }> }>,
+  requests: [] as Array<{ questions: Record<string, { instructions: string; criteria?: Record<string, string> }> }>,
 }));
 vi.mock("../src/shared/jev-client.js", () => ({
   callJev: vi.fn(async (_config, request) => {
@@ -24,15 +24,16 @@ vi.mock("../src/shared/jev-client.js", () => ({
 const owner = { owner: true, viewingAs: "owner" as const };
 const visitor = { owner: false, viewingAs: "visitor" as const };
 const topics = [
-  { id: "film", label: "영화와 드라마", question: "실사 영화", version: "v5", sort_order: 1, active: 1, timeline_visibility: "public" as const, search_visibility: "public" as const },
-  { id: "politics", label: "정치", question: "정치와 선거", version: "v5", sort_order: 2, active: 1, timeline_visibility: "public" as const, search_visibility: "owner" as const },
-  { id: "secret", label: "비공개", question: "비공개", version: "v5", sort_order: 3, active: 1, timeline_visibility: "hidden" as const, search_visibility: "hidden" as const },
+  { id: "film", label: "영화와 드라마", question: "실사 영화", version: "v5", sort_order: 1, active: 1, timeline_visibility: "public" as const, search_visibility: "public" as const, public_hide_threshold: null },
+  { id: "politics", label: "정치", question: "정치와 선거", version: "v5", sort_order: 2, active: 1, timeline_visibility: "public" as const, search_visibility: "owner" as const, public_hide_threshold: null },
+  { id: "secret", label: "비공개", question: "비공개", version: "v5", sort_order: 3, active: 1, timeline_visibility: "hidden" as const, search_visibility: "hidden" as const, public_hide_threshold: null },
 ];
 
 function database() {
   const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
-  sqlite.exec(readFileSync(new URL("../migrations/0002_visibility_tags.sql", import.meta.url), "utf8"));
+  for (const name of readdirSync(new URL("../migrations/", import.meta.url)).filter((entry) => entry.endsWith(".sql")).sort()) {
+    sqlite.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+  }
   const db: D1Database = {
     prepare(query: string): D1PreparedStatement {
       let values: unknown[] = [];
@@ -234,5 +235,30 @@ describe("search ranking and route", () => {
     expect((body.results as Array<{ tweet: { id: string } }>).map((item) => item.tweet.id)).toEqual(["2"]);
     expect((body.stages as Array<{ name: string }>).map((stage) => stage.name)).toEqual(["judge", "candidates", "rank", "round2"]);
     expect(jevCalls.requests.slice(previousRequests).filter((request) => request.questions.c0)).toHaveLength(2);
+  });
+
+  it("does not send a year that contains only automatically hidden tweets to Jev", async () => {
+    const { db, sqlite } = database();
+    sqlite.prepare(`
+      INSERT INTO topics (id, label, question, version, sort_order, active,
+        timeline_visibility, search_visibility, public_hide_threshold)
+      VALUES ('sensitive', '민감', '논쟁적 주장', 'v5', 4, 1, 'public', 'public', 0.5)
+    `).run();
+    tweet(sqlite, "visible-2024", "visible post", 2024);
+    tweet(sqlite, "hidden-2023", "hidden post", 2023);
+    score(sqlite, "hidden-2023", "sensitive", 0.9);
+    const env = { DB: db, DEV_OWNER: "1", SEARCH_DAILY_LIMIT: "9", SITE_TITLE: "test", TYPESAFE_BASE_URL: "https://jev.test", TYPESAFE_API_KEY: "fake", ACCESS_TEAM_DOMAIN: "" } as Env;
+    jevCalls.responses.push({ answers: {
+      topic_film: { noul: 0.1 }, topic_sensitive: { noul: 0.1 },
+      period: { probabilities: { "2023": 0.1, "2024": 0.1, none: 0.9 } },
+      intent: { choice: "one" }, strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.1 }, strategy_words: { noul: 0.1 },
+    }, inputTokens: 100 });
+    const response = await app.fetch(new Request("https://archive.test/api/search?as=visitor", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "unmatched query" }),
+    }), env);
+
+    expect(response.status).toBe(200);
+    expect(jevCalls.requests.at(-1)?.questions.period.criteria).toMatchObject({ "2024": "2024년" });
+    expect(jevCalls.requests.at(-1)?.questions.period.criteria).not.toHaveProperty("2023");
   });
 });

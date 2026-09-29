@@ -1,3 +1,5 @@
+import { write } from './api.js';
+
 export const $ = id => document.getElementById(id);
 export const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -82,7 +84,35 @@ export function tweetCard(tweet, ctx, { why, selectedTopic } = {}) {
   if (tweet.kind !== 'original') meta.append(el('span', 'tw-kind', kindLabels[tweet.kind] || tweet.kind));
   const x = el('a', 'tw-x', 'X'); x.href = tweet.x_url; x.target = '_blank'; x.rel = 'noopener noreferrer';
   x.insertAdjacentHTML('beforeend', xIcon); x.setAttribute('aria-label', `${date} 트윗 X 원문 보기`);
-  meta.append(x); article.append(meta);
+  if (ctx.owner && !ctx.preview) {
+    const badge = el('span', 'tw-hide-badge', '공개 숨김');
+    badge.hidden = !tweet.public_hidden;
+    meta.append(badge);
+    const visibility = document.createElement('select');
+    visibility.className = 'tw-visibility';
+    visibility.setAttribute('aria-label', '이 트윗의 공개 설정');
+    for (const [value, label] of [['', '자동'], ['private', '공개에서 숨김'], ['public', '항상 공개']]) {
+      const option = el('option', null, label); option.value = value; visibility.append(option);
+    }
+    visibility.value = tweet.visibility || '';
+    visibility.addEventListener('change', async () => {
+      const previous = tweet.visibility || '';
+      visibility.setCustomValidity('');
+      try {
+        const result = await write('PATCH', `/api/tweets/${encodeURIComponent(tweet.id)}`, { visibility: visibility.value || null });
+        tweet.visibility = result.visibility;
+        tweet.public_hidden = result.public_hidden;
+        badge.hidden = !result.public_hidden;
+      } catch (error) {
+        visibility.value = previous;
+        visibility.setCustomValidity(error.message);
+        visibility.reportValidity();
+      }
+    });
+    meta.append(visibility);
+  }
+  meta.append(x);
+  article.append(meta);
   const context = tweet.quoted || tweet.parent;
   if (context?.text) {
     const box = el('div', 'tw-ctx'); box.append(el('small', null, tweet.quoted ? '인용한 글' : tweet.kind === 'self_reply' ? '앞 글' : '답글을 단 글'));

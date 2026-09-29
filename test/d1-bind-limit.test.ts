@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/worker/index.js";
@@ -14,8 +14,9 @@ interface BindRecord {
 
 function database() {
   const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
-  sqlite.exec(readFileSync(new URL("../migrations/0002_visibility_tags.sql", import.meta.url), "utf8"));
+  for (const name of readdirSync(new URL("../migrations/", import.meta.url)).filter((entry) => entry.endsWith(".sql")).sort()) {
+    sqlite.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+  }
   const binds: BindRecord[] = [];
   const db: D1Database = {
     prepare(query: string): D1PreparedStatement {
