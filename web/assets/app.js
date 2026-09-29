@@ -157,7 +157,8 @@ async function main() {
     if (date) { showTab('today'); await today.goDate(date.dataset.date); }
   });
   document.addEventListener('keydown', event => {
-    if (event.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { event.preventDefault(); $('q').focus(); }
+    if (event.key === '/' && !document.documentElement.classList.contains('visitor')
+      && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { event.preventDefault(); $('q').focus(); }
   });
   window.addEventListener('popstate', renderRoute);
   lastRoute = location.pathname === '/settings' ? '/' : location.pathname + location.search;

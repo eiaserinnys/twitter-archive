@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, resolve, extname } from 'node:path';
 
@@ -34,6 +35,11 @@ let tags = [
   { id: 'mock-period', label: '프로젝트 기간', kind: 'career', start_date: '2009-01-01', end_date: '2013-12-31', note: null, visibility: 'public' },
   { id: 'mock-book', label: '읽은 책', kind: 'book', start_date: '2024-03-01', end_date: '2024-03-31', note: null, visibility: 'public' },
 ];
+const makePreset = (label, query) => ({ id: createHash('sha256').update(query).digest('hex').slice(0, 12), label, query });
+let searchPresets = [
+  makePreset('영화가 기억나는 순간', '처음 좋아했던 영화가 생각난 날'),
+  makePreset('오래된 게임 이야기', '예전에 푹 빠져 했던 게임'),
+];
 const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 const pad = n => String(n).padStart(2, '0');
 const dateMs = s => Date.parse(`${s}T00:00:00Z`);
@@ -62,6 +68,15 @@ const counts = (items, owner) => {
 };
 const estimate = { tweets: tweets.length, est_usd: +(tweets.length * 400 * 0.042 / 1e6).toFixed(4), est_minutes: Math.ceil(tweets.length / 400) };
 const responseTopics = owner => visibleTopics(owner).map(topic => owner ? topic : (({ question, scored, public_hide_threshold, ...rest }) => rest)(topic));
+const searchResponse = (query, owner) => {
+  const tweet = viewerTweets(owner)[0];
+  return {
+    q: query, judged: { topics: [], period: null }, candidates: tweet ? 1 : 0,
+    results: tweet ? [{ tweet: visibleTweet(tweet, owner), score: 0.93, why: '공개 검색 문구' }] : [],
+    stages: [{ name: 'judge', ms: 12 }, { name: 'candidates', ms: 4 }, { name: 'rank', ms: 18 }],
+    intent: 'one', strategies: [], rank_question: 'exact', fallback: false, rounds: 1,
+  };
+};
 const period = tag => [tag.start_date, tag.end_date || today];
 const inYear = (tag, year) => { const [a, b] = period(tag); return a <= `${year}-12-31` && b >= `${year}-01-01`; };
 const tagDays = tag => Math.round((dateMs(period(tag)[1]) - dateMs(tag.start_date)) / 86400000) + 1;
@@ -171,7 +186,29 @@ createServer(async (req, res) => {
       return json(res, { year, month, days });
     }
     if (path === '/api/tags' && req.method === 'GET') return json(res, { tags: visibleTags(owner) });
-    if (path === '/api/search') return json(res, { error: 'not_found' }, 404);
+    if (path === '/api/search/presets' && req.method === 'GET') return json(res, { presets: searchPresets });
+    if (path === '/api/search/presets' && req.method === 'PUT') {
+      if (!owner) return json(res, { error: 'owner_only' }, 403);
+      const input = await body(req);
+      if (!Array.isArray(input.presets) || input.presets.length > 20
+        || input.presets.some(preset => typeof preset.label !== 'string' || !preset.label.trim() || preset.label.length > 40
+          || typeof preset.query !== 'string' || !preset.query.trim() || preset.query.length > 200)) {
+        return json(res, { error: 'invalid', message: 'Search presets are invalid.' }, 400);
+      }
+      searchPresets = input.presets.map(({ label, query }) => makePreset(label, query));
+      return json(res, { presets: searchPresets });
+    }
+    if (path === '/api/search' && req.method === 'POST') {
+      const input = await body(req);
+      if (!owner) {
+        if (Object.hasOwn(input, 'q')) return json(res, {
+          error: 'free_query_disabled', message: '공개 버전에서는 API 호출 비용 때문에 자유 검색어가 제한됩니다.',
+        }, 403);
+        const preset = searchPresets.find(item => item.id === input.preset_id);
+        return preset ? json(res, searchResponse(preset.query, false)) : json(res, { error: 'not_found' }, 404);
+      }
+      return json(res, { error: 'not_found' }, 404);
+    }
     if (req.method !== 'GET' && !owner) return json(res, { error: 'owner_only' }, 403);
     if (path === '/api/topics' && req.method === 'POST') {
       const input = await body(req);

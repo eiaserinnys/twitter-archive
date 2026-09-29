@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { callJev, type JevConfig } from "../../shared/jev-client.js";
 import type { TweetKind } from "../../shared/types.js";
 import type { Viewer } from "../auth.js";
+import { getOrCacheJson } from "../cache.js";
+import { getDataVersion } from "../db/meta.js";
 import { serializeTweetRows } from "../db/tweets.js";
 import { listTopicRows } from "../db/topics.js";
 import type { Env } from "../env.js";
@@ -12,10 +14,12 @@ import type { TweetDbRow } from "../serialize.js";
 import { canViewSearchTopic } from "../visibility.js";
 import { publicHiddenSql } from "../visibility.js";
 import type { AppContext } from "./helpers.js";
-import { invalid, isDate } from "./helpers.js";
+import { invalid, isDate, ownerJsonBody } from "./helpers.js";
 
 const route = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
 const tweetKinds: TweetKind[] = ["original", "reply", "self_reply", "quote"];
+const publicSearchPresetsKey = "public_search_presets";
+const visitorSearchLimitReached = Symbol("visitor-search-limit-reached");
 
 interface SearchBody {
   q: string;
@@ -23,6 +27,17 @@ interface SearchBody {
   from?: string;
   to?: string;
   kinds?: TweetKind[];
+}
+
+interface PublicSearchPreset {
+  id: string;
+  label: string;
+  query: string;
+}
+
+interface PublicSearchPresetInput {
+  label: string;
+  query: string;
 }
 
 function parseSearchBody(value: unknown): SearchBody | null {
@@ -45,6 +60,24 @@ function parseSearchBody(value: unknown): SearchBody | null {
 
 function kstToday(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function isPublicSearchPresetInput(value: unknown): value is PublicSearchPresetInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const input = value as Record<string, unknown>;
+  return typeof input.label === "string" && input.label.trim().length > 0 && input.label.length <= 40
+    && typeof input.query === "string" && input.query.trim().length > 0 && input.query.length <= 200;
+}
+
+async function publicSearchPresets(db: Env["DB"]): Promise<PublicSearchPreset[]> {
+  const row = await db.prepare("SELECT value FROM meta WHERE key = ?")
+    .bind(publicSearchPresetsKey).first<{ value: string }>();
+  return row ? JSON.parse(row.value) as PublicSearchPreset[] : [];
+}
+
+async function presetId(query: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(query));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 12);
 }
 
 async function reserveVisitorSearch(db: Env["DB"], limit: number): Promise<boolean> {
@@ -84,23 +117,13 @@ async function rankRound(config: JevConfig, q: string, rows: TweetDbRow[], inten
   };
 }
 
-route.post("/api/search", async (context: AppContext) => {
-  const contentType = context.req.header("content-type")?.split(";", 1)[0].trim().toLowerCase();
-  if (contentType !== "application/json") return context.json({ error: "json_required" }, 415);
-  let body: SearchBody | null;
-  try { body = parseSearchBody(await context.req.json()); } catch { body = null; }
-  if (!body) return invalid(context, "Search request is invalid.");
-
-  const viewer = context.get("viewer");
-  const topicRows = await listTopicRows(context.env.DB);
-  const allowedTopics = topicRows.filter((topic) => topic.active && canViewSearchTopic(topic.search_visibility, viewer));
-  const allowedIds = new Set(allowedTopics.map((topic) => topic.id));
-  if (body.topics?.some((id) => !allowedIds.has(id))) return context.json({ error: "topic_not_allowed" }, 400);
-  if (viewer.viewingAs === "visitor"
-    && !await reserveVisitorSearch(context.env.DB, Number(context.env.SEARCH_DAILY_LIMIT))) {
-    return context.json({ error: "search_limit" }, 429);
-  }
-
+async function runSearch(
+  context: AppContext,
+  viewer: Viewer,
+  body: SearchBody,
+  topicRows: Awaited<ReturnType<typeof listTopicRows>>,
+  allowedTopics: Awaited<ReturnType<typeof listTopicRows>>,
+) {
   const config: JevConfig = { baseUrl: context.env.TYPESAFE_BASE_URL, apiKey: context.env.TYPESAFE_API_KEY };
   const judgeStart = Date.now();
   const yearRows = await context.env.DB.prepare(`SELECT DISTINCT t.year FROM tweets t
@@ -146,7 +169,7 @@ route.post("/api/search", async (context: AppContext) => {
   const why = reason(resultStrategies, judged.topics, labels,
     body.from && body.to ? { from: body.from, to: body.to } : judged.period);
   const results = round.results.map((item, index) => ({ tweet: tweets[index], score: item.score, why }));
-  return context.json({
+  return {
     q: body.q,
     judged: { topics: judged.topics, period: judged.period },
     candidates: candidateCount,
@@ -157,7 +180,82 @@ route.post("/api/search", async (context: AppContext) => {
     rank_question: round.question,
     fallback: round.question === "related",
     rounds,
-  });
+  };
+}
+
+route.get("/api/search/presets", async (context: AppContext) => {
+  const presets = await publicSearchPresets(context.env.DB);
+  return context.json({ presets });
+});
+
+route.put("/api/search/presets", async (context: AppContext) => {
+  const parsed = await ownerJsonBody(context);
+  if ("response" in parsed) return parsed.response;
+  const input = parsed.body.presets;
+  if (!Array.isArray(input) || input.length > 20 || !input.every(isPublicSearchPresetInput)) {
+    return invalid(context, "Search presets are invalid.");
+  }
+  const presets = await Promise.all(input.map(async ({ label, query }) => ({ id: await presetId(query), label, query })));
+  await context.env.DB.prepare(`
+    INSERT INTO meta (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).bind(publicSearchPresetsKey, JSON.stringify(presets)).run();
+  return context.json({ presets });
+});
+
+route.post("/api/search", async (context: AppContext) => {
+  const contentType = context.req.header("content-type")?.split(";", 1)[0].trim().toLowerCase();
+  if (contentType !== "application/json") return context.json({ error: "json_required" }, 415);
+  let value: unknown;
+  try { value = await context.req.json(); } catch { value = null; }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalid(context, "Search request is invalid.");
+
+  const viewer = context.get("viewer");
+  const rawBody = value as Record<string, unknown>;
+  if (viewer.viewingAs === "visitor") {
+    if ("q" in rawBody) {
+      return context.json({
+        error: "free_query_disabled",
+        message: "공개 버전에서는 API 호출 비용 때문에 자유 검색어가 제한됩니다.",
+      }, 403);
+    }
+    if (typeof rawBody.preset_id !== "string" || !rawBody.preset_id) return invalid(context, "Search request is invalid.");
+    const preset = (await publicSearchPresets(context.env.DB)).find(({ id }) => id === rawBody.preset_id);
+    if (!preset) return context.json({ error: "not_found" }, 404);
+    const body = parseSearchBody({ q: preset.query });
+    if (!body) return invalid(context, "Search request is invalid.");
+    const cacheRequest = new Request(new URL(`/api/search/presets/${encodeURIComponent(preset.id)}`, context.req.url), { method: "GET" });
+    try {
+      const dataVersion = await getDataVersion(context.env.DB);
+      const response = await getOrCacheJson(
+        cacheRequest,
+        dataVersion,
+        viewer.viewingAs,
+        async () => {
+          if (!await reserveVisitorSearch(context.env.DB, Number(context.env.SEARCH_DAILY_LIMIT))) {
+            throw visitorSearchLimitReached;
+          }
+          const topicRows = await listTopicRows(context.env.DB);
+          const allowedTopics = topicRows.filter((topic) => topic.active && canViewSearchTopic(topic.search_visibility, viewer));
+          return runSearch(context, viewer, body, topicRows, allowedTopics);
+        },
+        undefined,
+        context.env.CF_VERSION_METADATA?.id,
+      );
+      return context.json(response);
+    } catch (error) {
+      if (error === visitorSearchLimitReached) return context.json({ error: "search_limit" }, 429);
+      throw error;
+    }
+  }
+
+  const body = parseSearchBody(value);
+  if (!body) return invalid(context, "Search request is invalid.");
+  const topicRows = await listTopicRows(context.env.DB);
+  const allowedTopics = topicRows.filter((topic) => topic.active && canViewSearchTopic(topic.search_visibility, viewer));
+  const allowedIds = new Set(allowedTopics.map((topic) => topic.id));
+  if (body.topics?.some((id) => !allowedIds.has(id))) return context.json({ error: "topic_not_allowed" }, 400);
+  return context.json(await runSearch(context, viewer, body, topicRows, allowedTopics));
 });
 
 export default route;
