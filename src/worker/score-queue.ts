@@ -1,6 +1,7 @@
 import type { NormalizedTweet, TweetContext, TweetKind, TweetMedia, MediaType } from "../shared/types.js";
 import { buildState } from "../shared/tweet-state.js";
 import { callJev, JEV_USD_PER_MILLION_INPUT, type JevQuestion, type JevRequest } from "../shared/jev-client.js";
+import { queryIdChunks } from "./db/chunked.js";
 import type { D1PreparedStatement, Env } from "./env.js";
 
 export interface MissingTopic {
@@ -83,30 +84,37 @@ async function candidates(env: Env, limit: number): Promise<ScoreCandidate[]> {
   if (tweets.results.length === 0) return [];
 
   const ids = tweets.results.map((tweet) => tweet.id);
-  const placeholders = ids.map(() => "?").join(", ");
-  const [pendingResult, mediaResult] = await Promise.all([
-    env.DB.prepare(`
-      SELECT t.id AS tweet_id, tp.id, tp.question, tp.version
-      FROM tweets t
-      JOIN topics tp ON tp.active = 1
-      LEFT JOIN scores s ON s.tweet_id = t.id AND s.topic = tp.id AND s.version = tp.version
-      WHERE t.id IN (${placeholders}) AND s.tweet_id IS NULL
-      ORDER BY t.created_at DESC, t.id DESC, tp.sort_order, tp.id
-    `).bind(...ids).all<PendingTopicRow>(),
-    env.DB.prepare(`
-      SELECT tweet_id, type, r2_key, width, height, alt
-      FROM media WHERE tweet_id IN (${placeholders})
-      ORDER BY tweet_id, idx
-    `).bind(...ids).all<MediaRow>(),
+  const [pendingRows, mediaRows] = await Promise.all([
+    queryIdChunks(ids, async (chunk) => {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const result = await env.DB.prepare(`
+        SELECT t.id AS tweet_id, tp.id, tp.question, tp.version
+        FROM tweets t
+        JOIN topics tp ON tp.active = 1
+        LEFT JOIN scores s ON s.tweet_id = t.id AND s.topic = tp.id AND s.version = tp.version
+        WHERE t.id IN (${placeholders}) AND s.tweet_id IS NULL
+        ORDER BY t.created_at DESC, t.id DESC, tp.sort_order, tp.id
+      `).bind(...chunk).all<PendingTopicRow>();
+      return result.results;
+    }),
+    queryIdChunks(ids, async (chunk) => {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const result = await env.DB.prepare(`
+        SELECT tweet_id, type, r2_key, width, height, alt
+        FROM media WHERE tweet_id IN (${placeholders})
+        ORDER BY tweet_id, idx
+      `).bind(...chunk).all<MediaRow>();
+      return result.results;
+    }),
   ]);
   const topicsByTweet = new Map<string, VersionedTopic[]>();
-  for (const row of pendingResult.results) {
+  for (const row of pendingRows) {
     const list = topicsByTweet.get(row.tweet_id) ?? [];
     list.push({ id: row.id, question: row.question, version: row.version });
     topicsByTweet.set(row.tweet_id, list);
   }
   const mediaByTweet = new Map<string, TweetMedia[]>();
-  for (const row of mediaResult.results) {
+  for (const row of mediaRows) {
     const list = mediaByTweet.get(row.tweet_id) ?? [];
     list.push({ type: row.type, r2_key: row.r2_key, width: row.width, height: row.height, alt: row.alt });
     mediaByTweet.set(row.tweet_id, list);

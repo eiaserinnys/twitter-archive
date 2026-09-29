@@ -2,6 +2,7 @@ import { TOPIC_SEED } from "../../shared/topics.js";
 import type { Viewer } from "../auth.js";
 import type { D1Database } from "../env.js";
 import { decodeCursor, encodeCursor, type TweetCursor } from "../cursor.js";
+import { queryIdChunks } from "./chunked.js";
 import { selectTweetTopicChips, type TopicScoreRow } from "../visibility.js";
 import { serializeTweet, type MediaDbRow, type TweetDbRow, type TweetOut } from "../serialize.js";
 
@@ -82,32 +83,39 @@ export async function serializeTweetRows(
 ): Promise<TweetOut[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
-  const placeholders = ids.map(() => "?").join(", ");
-  const [mediaResult, topicResult] = await Promise.all([
-    db.prepare(`
-      SELECT tweet_id, type, r2_key, width, height, alt
-      FROM media
-      WHERE tweet_id IN (${placeholders})
-      ORDER BY tweet_id, idx
-    `).bind(...ids).all<MediaDbRow & { tweet_id: string }>(),
-    db.prepare(`
-      SELECT s.tweet_id, tp.id, s.score, s.version, tp.version AS topic_version,
-        tp.active, tp.timeline_visibility
-      FROM scores s
-      JOIN topics tp ON tp.id = s.topic
-      WHERE s.tweet_id IN (${placeholders}) AND s.score >= ?
-        AND s.version = tp.version AND tp.active = 1
-        AND ${visibleTopicClause(viewer)}
-    `).bind(...ids, TOPIC_SEED.display_threshold).all<TopicScoreRow & { tweet_id: string }>(),
+  const [mediaRows, topicRows] = await Promise.all([
+    queryIdChunks(ids, async (chunk) => {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const result = await db.prepare(`
+        SELECT tweet_id, type, r2_key, width, height, alt
+        FROM media
+        WHERE tweet_id IN (${placeholders})
+        ORDER BY tweet_id, idx
+      `).bind(...chunk).all<MediaDbRow & { tweet_id: string }>();
+      return result.results;
+    }),
+    queryIdChunks(ids, async (chunk) => {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const result = await db.prepare(`
+        SELECT s.tweet_id, tp.id, s.score, s.version, tp.version AS topic_version,
+          tp.active, tp.timeline_visibility
+        FROM scores s
+        JOIN topics tp ON tp.id = s.topic
+        WHERE s.tweet_id IN (${placeholders}) AND s.score >= ?
+          AND s.version = tp.version AND tp.active = 1
+          AND ${visibleTopicClause(viewer)}
+      `).bind(...chunk, TOPIC_SEED.display_threshold).all<TopicScoreRow & { tweet_id: string }>();
+      return result.results;
+    }, 1),
   ]);
   const mediaByTweet = new Map<string, MediaDbRow[]>();
-  for (const row of mediaResult.results) {
+  for (const row of mediaRows) {
     const items = mediaByTweet.get(row.tweet_id) ?? [];
     items.push(row);
     mediaByTweet.set(row.tweet_id, items);
   }
   const topicsByTweet = new Map<string, TopicScoreRow[]>();
-  for (const row of topicResult.results) {
+  for (const row of topicRows) {
     const items = topicsByTweet.get(row.tweet_id) ?? [];
     items.push(row);
     topicsByTweet.set(row.tweet_id, items);
