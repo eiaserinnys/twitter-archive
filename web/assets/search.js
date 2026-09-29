@@ -10,7 +10,8 @@ const stepNames = ['주제와 시기, 전략 판정', '후보 추림', '순위 �
 export function createSearch(ctx, { navigate, showTab }) {
   const input = $('q'), main = $('srMain');
   const filters = { topics: new Set(), kinds: new Set(), from: null, to: null };
-  let currentQuery = '', requestNumber = 0;
+  let currentQuery = '', requestNumber = 0, lastVisitorMode, presets = [], presetError = null;
+  const visitorMode = () => !ctx.owner || ctx.preview;
   const minYear = () => ctx.timeline.years[0]?.year;
   const maxYear = () => ctx.timeline.years.at(-1)?.year;
 
@@ -55,6 +56,43 @@ export function createSearch(ctx, { navigate, showTab }) {
     box.append(big, list); main.replaceChildren(box);
   }
 
+  function publicIdle() { main.replaceChildren(); }
+
+  function syncSearchMode() {
+    const visitor = visitorMode();
+    $('searchForm').hidden = visitor;
+    $('searchIntro').hidden = visitor;
+    $('exList').hidden = visitor;
+    $('filters').hidden = visitor;
+    $('publicSearch').hidden = !visitor;
+  }
+
+  function drawPresetChips() {
+    const chips = $('presetChips');
+    chips.hidden = presets.length === 0;
+    chips.replaceChildren(...presets.map(preset => {
+      const button = el('button', 'tg preset-chip', preset.label);
+      button.type = 'button'; button.title = preset.query;
+      button.addEventListener('click', () => runPreset(preset));
+      return button;
+    }));
+    const error = $('presetLoadError');
+    error.hidden = !presetError;
+    error.textContent = presetError ? `검색 문구를 불러오지 못했습니다: ${presetError}` : '';
+  }
+
+  async function refreshPresets() {
+    try {
+      const response = await get('/api/search/presets');
+      presets = response.presets;
+      presetError = null;
+    } catch (error) {
+      presets = [];
+      presetError = error instanceof Error ? error.message : String(error);
+    }
+    drawPresetChips();
+  }
+
   function resultHeader(label, note) {
     const head = el('div', 'res-head');
     head.append(el('span', 'mode', label), el('h3', null, `“${currentQuery}”`), el('p', 'note', note));
@@ -88,6 +126,19 @@ export function createSearch(ctx, { navigate, showTab }) {
       step.querySelector('.val').textContent = values[index];
     });
     box.querySelector('.replay-top span').textContent = `후보 ${response.candidates}개`;
+  }
+
+  function renderSearchResponse(response) {
+    fillStages(main.querySelector('.replay-box'), response);
+    const head = main.querySelector('.res-head');
+    if (response.intent === 'many') head.querySelector('.mode').textContent = 'SEARCH / 모아 보기';
+    const chips = el('div', 'toggles'); chips.style.marginTop = '12px';
+    chips.setAttribute('aria-label', '선택된 검색 전략');
+    (response.strategies || []).filter(strategy => strategy.selected)
+      .forEach(strategy => chips.append(el('span', 'tg', strategy.label)));
+    if (chips.childElementCount) head.append(chips);
+    main.append(renderResults(response.results, response.results.length,
+      response.fallback && response.results.length ? '정확히 맞는 트윗은 없어 관련 트윗을 보여 드립니다' : null));
   }
 
   function renderResults(items, total, note, nextPage = null) {
@@ -141,6 +192,13 @@ export function createSearch(ctx, { navigate, showTab }) {
   }
 
   async function run(query, route = true) {
+    if (visitorMode()) {
+      if (route) navigate('/search');
+      currentQuery = ''; input.value = '';
+      $('searchForm').classList.remove('has-q');
+      publicIdle();
+      return;
+    }
     currentQuery = query.trim(); input.value = currentQuery;
     $('searchForm').classList.toggle('has-q', !!currentQuery);
     showTab('search');
@@ -157,21 +215,36 @@ export function createSearch(ctx, { navigate, showTab }) {
     try {
       const response = await search(filterBody());
       if (token !== requestNumber) return;
-      fillStages(box, response);
-      const head = main.querySelector('.res-head');
-      if (response.intent === 'many') head.querySelector('.mode').textContent = 'SEARCH / 모아 보기';
-      const chips = el('div', 'toggles'); chips.style.marginTop = '12px';
-      chips.setAttribute('aria-label', '선택된 검색 전략');
-      (response.strategies || []).filter(strategy => strategy.selected)
-        .forEach(strategy => chips.append(el('span', 'tg', strategy.label)));
-      if (chips.childElementCount) head.append(chips);
-      main.append(renderResults(response.results, response.results.length,
-        response.fallback && response.results.length ? '정확히 맞는 트윗은 없어 관련 트윗을 보여 드립니다' : null));
+      renderSearchResponse(response);
     } catch (error) {
       if (token !== requestNumber) return;
       if (error instanceof ApiError && [404, 501].includes(error.status)) await fallback();
       else if (error instanceof ApiError && error.status === 429) main.replaceChildren(resultHeader('SEARCH / 뜻 검색', '오늘 검색 한도를 다 썼습니다. 내일 다시 시도해 주세요.'));
       else main.replaceChildren(resultHeader('SEARCH / 뜻 검색', `검색에 실패했습니다: ${error.message}`));
+    } finally { clearInterval(progress); }
+  }
+
+  async function runPreset(preset) {
+    currentQuery = preset.query;
+    input.value = '';
+    $('searchForm').classList.remove('has-q');
+    showTab('search'); navigate('/search');
+    const token = ++requestNumber;
+    const box = stagesBox();
+    main.replaceChildren(resultHeader('SEARCH / 공개 문구', '설정한 공개 검색 문구로 찾습니다.'), box);
+    const progress = setInterval(() => {
+      const running = box.querySelector('.step.run');
+      const next = running?.nextElementSibling;
+      if (next) { running.classList.replace('run', 'done'); next.classList.add('run'); }
+    }, 450);
+    try {
+      const response = await search({ preset_id: preset.id });
+      if (token !== requestNumber) return;
+      renderSearchResponse(response);
+    } catch (error) {
+      if (token !== requestNumber) return;
+      if (error instanceof ApiError && error.status === 429) main.replaceChildren(resultHeader('SEARCH / 공개 문구', '오늘 검색 한도를 다 썼습니다. 내일 다시 시도해 주세요.'));
+      else main.replaceChildren(resultHeader('SEARCH / 공개 문구', `검색에 실패했습니다: ${error.message}`));
     } finally { clearInterval(progress); }
   }
 
@@ -196,6 +269,18 @@ export function createSearch(ctx, { navigate, showTab }) {
   $('fFrom').addEventListener('change', () => { filters.from = $('fFrom').value || null; drawFilters(); if (currentQuery) run(currentQuery, false); });
   $('fTo').addEventListener('change', () => { filters.to = $('fTo').value || null; drawFilters(); if (currentQuery) run(currentQuery, false); });
   $('fReset').addEventListener('click', () => { filters.topics.clear(); filters.kinds.clear(); filters.from = filters.to = null; drawFilters(); if (currentQuery) run(currentQuery, false); });
-  drawFilters(); idle();
-  return { run, refresh: drawFilters };
+  function refresh() {
+    drawFilters(); syncSearchMode();
+    const visitor = visitorMode();
+    if (visitor !== lastVisitorMode) {
+      requestNumber += 1; currentQuery = ''; input.value = '';
+      $('searchForm').classList.remove('has-q');
+      if (visitor) publicIdle(); else idle();
+      lastVisitorMode = visitor;
+    }
+    if (visitor) void refreshPresets();
+  }
+
+  refresh();
+  return { run, refresh, refreshPresets };
 }

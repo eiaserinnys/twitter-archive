@@ -1,4 +1,4 @@
-import { write, setPreview } from './api.js';
+import { get, write, setPreview } from './api.js';
 import { $, el, pad, dimOf, tagKinds, tagKind, periodText, lockIcon } from './dom.js';
 
 const visibility = [['public', '공개'], ['owner', '나만'], ['hidden', '숨김']];
@@ -6,6 +6,7 @@ const visibility = [['public', '공개'], ['owner', '나만'], ['hidden', '숨�
 export function createSettings(ctx, { navigate, onClose, onPreview, refreshData }) {
   const dialog = $('settings'), tagForm = $('tagForm'), topicForm = $('topicForm');
   let editingTopic = null, editingTag = null;
+  let searchPresets = [], searchPresetError = null;
 
   function estimateText() {
     const value = ctx.meta.rescore_estimate;
@@ -27,7 +28,9 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
   function setSection(section) {
     $('stTopics').setAttribute('aria-pressed', String(section === 'topics'));
     $('stTags').setAttribute('aria-pressed', String(section === 'tags'));
+    $('stSearchPresets').setAttribute('aria-pressed', String(section === 'searchPresets'));
     $('secTopics').hidden = section !== 'topics'; $('secTags').hidden = section !== 'tags';
+    $('secSearchPresets').hidden = section !== 'searchPresets';
   }
 
   function segmented(label, selected, onPick) {
@@ -158,6 +161,97 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     $('stTagsN').textContent = ctx.tags.length;
   }
 
+  function renderSearchPresets() {
+    const list = $('searchPresetList');
+    if (!searchPresets.length) {
+      const empty = el('li', 'preset-empty', '등록된 공개 검색 문구가 없습니다.');
+      list.replaceChildren(empty);
+    } else {
+      list.replaceChildren(...searchPresets.map((preset, index) => {
+        const row = el('li', 'search-preset-row');
+        const fields = el('div', 'search-preset-fields');
+        const labelField = el('label'), labelText = el('span', 'fl', '표시 이름'), labelInput = el('input');
+        labelInput.type = 'text'; labelInput.maxLength = 40; labelInput.value = preset.label;
+        labelInput.className = 'preset-label'; labelInput.setAttribute('aria-label', `${index + 1}번째 검색 문구 표시 이름`);
+        labelInput.addEventListener('input', () => { preset.label = labelInput.value; searchPresetError = null; renderPresetError(); });
+        labelField.append(labelText, labelInput);
+        const queryField = el('label'), queryText = el('span', 'fl', '검색 문구'), queryInput = el('textarea');
+        queryInput.rows = 2; queryInput.maxLength = 200; queryInput.value = preset.query;
+        queryInput.setAttribute('aria-label', `${index + 1}번째 검색 문구 내용`);
+        queryInput.addEventListener('input', () => { preset.query = queryInput.value; searchPresetError = null; renderPresetError(); });
+        queryField.append(queryText, queryInput);
+        fields.append(labelField, queryField);
+
+        const actions = el('div', 'search-preset-actions');
+        const moveUp = el('button', null, '위로'); moveUp.type = 'button'; moveUp.disabled = index === 0;
+        moveUp.setAttribute('aria-label', `${index + 1}번째 검색 문구 위로 이동`);
+        moveUp.addEventListener('click', () => moveSearchPreset(index, -1));
+        const moveDown = el('button', null, '아래로'); moveDown.type = 'button'; moveDown.disabled = index === searchPresets.length - 1;
+        moveDown.setAttribute('aria-label', `${index + 1}번째 검색 문구 아래로 이동`);
+        moveDown.addEventListener('click', () => moveSearchPreset(index, 1));
+        const remove = el('button', null, '삭제'); remove.type = 'button';
+        remove.setAttribute('aria-label', `${index + 1}번째 검색 문구 삭제`);
+        remove.addEventListener('click', () => { searchPresets.splice(index, 1); searchPresetError = null; renderSearchPresets(); });
+        actions.append(moveUp, moveDown, remove);
+        row.append(fields, actions);
+        return row;
+      }));
+    }
+    $('searchPresetAdd').disabled = searchPresets.length >= 20;
+    renderPresetError();
+  }
+
+  function renderPresetError() {
+    const error = $('searchPresetErr'); error.textContent = searchPresetError || ''; error.hidden = !searchPresetError;
+  }
+
+  function moveSearchPreset(index, direction) {
+    const target = index + direction;
+    if (target < 0 || target >= searchPresets.length) return;
+    [searchPresets[index], searchPresets[target]] = [searchPresets[target], searchPresets[index]];
+    searchPresetError = null;
+    renderSearchPresets();
+  }
+
+  async function loadSearchPresets() {
+    try {
+      const response = await get('/api/search/presets');
+      searchPresets = response.presets;
+      searchPresetError = null;
+    } catch (error) {
+      searchPresetError = `검색 문구를 불러오지 못했습니다: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    renderSearchPresets();
+  }
+
+  $('searchPresetAdd').addEventListener('click', () => {
+    if (searchPresets.length >= 20) return;
+    searchPresets.push({ label: '', query: '' });
+    searchPresetError = null;
+    renderSearchPresets();
+    requestAnimationFrame(() => {
+      const inputs = $('searchPresetList').querySelectorAll('.preset-label');
+      inputs[inputs.length - 1]?.focus();
+    });
+  });
+  $('searchPresetSave').addEventListener('click', async () => {
+    if (searchPresets.some(({ label, query }) => !label.trim() || label.length > 40 || !query.trim() || query.length > 200)) {
+      searchPresetError = '표시 이름은 1~40자, 검색 문구는 1~200자로 입력해 주세요.';
+      renderPresetError(); return;
+    }
+    try {
+      const response = await write('PUT', '/api/search/presets', {
+        presets: searchPresets.map(({ label, query }) => ({ label, query })),
+      });
+      searchPresets = response.presets;
+      searchPresetError = null;
+      renderSearchPresets();
+    } catch (error) {
+      searchPresetError = error instanceof Error ? error.message : String(error);
+      renderPresetError();
+    }
+  });
+
   function openTagForm(tag) {
     editingTag = tag?.id || null;
     $('tfTitle').textContent = tag ? '태그 수정' : '새 태그';
@@ -204,11 +298,12 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
 
   async function open(editTagId = null, route = true) {
     if (!ctx.owner || ctx.preview) return;
-    renderTopics(); renderTags();
+    renderTopics(); renderTags(); renderSearchPresets();
     if (editTagId) { setSection('tags'); openTagForm(ctx.tags.find(tag => tag.id === editTagId)); }
     else { setSection('topics'); closeTopicForm(); closeTagForm(); }
     if (route) navigate('/settings');
     if (!dialog.open) dialog.showModal();
+    void loadSearchPresets();
   }
   function close() { if (dialog.open) dialog.close(); onClose(); }
   $('setBtn').addEventListener('click', () => open());
@@ -217,6 +312,7 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
   dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
   $('stTopics').addEventListener('click', () => setSection('topics'));
   $('stTags').addEventListener('click', () => setSection('tags'));
+  $('stSearchPresets').addEventListener('click', () => setSection('searchPresets'));
   $('visSwitch').addEventListener('click', async () => {
     setPreview(true); dialog.close(); await onPreview();
   });

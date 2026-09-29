@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/worker/index.js";
 import type { JevAnswer } from "../src/shared/jev-client.js";
 import type { D1Database, D1PreparedStatement, Env } from "../src/worker/env.js";
@@ -23,6 +23,12 @@ vi.mock("../src/shared/jev-client.js", () => ({
 
 const owner = { owner: true, viewingAs: "owner" as const };
 const visitor = { owner: false, viewingAs: "visitor" as const };
+
+afterEach(() => {
+  jevCalls.responses.length = 0;
+  vi.unstubAllGlobals();
+});
+
 const topics = [
   { id: "film", label: "영화와 드라마", question: "실사 영화", version: "v5", sort_order: 1, active: 1, timeline_visibility: "public" as const, search_visibility: "public" as const, public_hide_threshold: null },
   { id: "politics", label: "정치", question: "정치와 선거", version: "v5", sort_order: 2, active: 1, timeline_visibility: "public" as const, search_visibility: "owner" as const, public_hide_threshold: null },
@@ -113,6 +119,139 @@ describe("search judgment", () => {
   });
 });
 
+describe("public search presets", () => {
+  it("lets visitors read the public preset list and owners replace it with stable query IDs", async () => {
+    const { db } = database();
+    const visitorEnv = {
+      DB: db, DEV_OWNER: "", ACCESS_TEAM_DOMAIN: "", ACCESS_AUD: "", OWNER_EMAILS: "", OWNER_SERVICE_TOKEN_IDS: "",
+    } as Env;
+    const empty = await app.fetch(new Request("https://archive.test/api/search/presets"), visitorEnv);
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({ presets: [] });
+
+    const query = "몇 년 전 본 영화";
+    const body = { presets: [{ label: "영화 기억", query }] };
+    const ownerEnv = { DB: db, DEV_OWNER: "1" } as Env;
+    const put = (payload: unknown, as = "owner") => app.fetch(new Request(`https://archive.test/api/search/presets?as=${as}`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }), ownerEnv);
+    const first = await put(body);
+    expect(first.status).toBe(200);
+    const firstBody = await first.json() as { presets: Array<{ id: string; label: string; query: string }> };
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(query));
+    const expectedId = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 12);
+    expect(firstBody).toEqual({ presets: [{ id: expectedId, label: "영화 기억", query }] });
+
+    const second = await put({ presets: [{ label: "영화 회상", query }] });
+    expect(await second.json()).toEqual({ presets: [{ id: expectedId, label: "영화 회상", query }] });
+    const visible = await app.fetch(new Request("https://archive.test/api/search/presets?as=visitor"), visitorEnv);
+    expect(await visible.json()).toEqual({ presets: [{ id: expectedId, label: "영화 회상", query }] });
+  });
+
+  it("restricts preset changes to owners and enforces label, query, and count limits", async () => {
+    const { db } = database();
+    const visitorEnv = {
+      DB: db, DEV_OWNER: "", ACCESS_TEAM_DOMAIN: "", ACCESS_AUD: "", OWNER_EMAILS: "", OWNER_SERVICE_TOKEN_IDS: "",
+    } as Env;
+    const denied = await app.fetch(new Request("https://archive.test/api/search/presets", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presets: [{ label: "영화", query: "영화" }] }),
+    }), visitorEnv);
+    expect(denied.status).toBe(403);
+
+    const ownerEnv = { DB: db, DEV_OWNER: "1" } as Env;
+    const invalidLists = [
+      [{ label: "", query: "영화" }],
+      [{ label: "a".repeat(41), query: "영화" }],
+      [{ label: "영화", query: "" }],
+      [{ label: "영화", query: "a".repeat(201) }],
+      Array.from({ length: 21 }, (_, index) => ({ label: `검색 ${index}`, query: `query ${index}` })),
+    ];
+    for (const presets of invalidLists) {
+      const response = await app.fetch(new Request("https://archive.test/api/search/presets", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ presets }),
+      }), ownerEnv);
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it("rejects visitor free queries and unknown preset IDs without reserving search quota", async () => {
+    const { db, sqlite } = database();
+    const env = {
+      DB: db, DEV_OWNER: "", SEARCH_DAILY_LIMIT: "1", ACCESS_TEAM_DOMAIN: "", ACCESS_AUD: "",
+      OWNER_EMAILS: "", OWNER_SERVICE_TOKEN_IDS: "",
+    } as Env;
+    const previousRequests = jevCalls.requests.length;
+    const free = await app.fetch(new Request("https://archive.test/api/search", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ q: "자유 검색", preset_id: "missing" }),
+    }), env);
+    expect(free.status).toBe(403);
+    expect(await free.json()).toEqual({
+      error: "free_query_disabled",
+      message: "공개 버전에서는 API 호출 비용 때문에 자유 검색어가 제한됩니다.",
+    });
+    const unknown = await app.fetch(new Request("https://archive.test/api/search", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preset_id: "missing" }),
+    }), env);
+    expect(unknown.status).toBe(404);
+    expect(sqlite.prepare("SELECT value FROM meta WHERE key LIKE 'search_count:%'").get()).toBeUndefined();
+    expect(jevCalls.requests).toHaveLength(previousRequests);
+  });
+
+  it("uses only the saved query and avoids Jev and quota writes on a cache hit", async () => {
+    const { db, sqlite } = database();
+    tweet(sqlite, "1", "영화 이야기"); score(sqlite, "1", "film", 0.9);
+    const id = "0123456789ab";
+    const query = "설정한 영화 찾기";
+    sqlite.prepare("INSERT INTO meta (key, value) VALUES ('data_version', 'v1'), ('public_search_presets', ?)")
+      .run(JSON.stringify([{ id, label: "영화", query }]));
+    const entries = new Map<string, Response>();
+    const cache = {
+      match: vi.fn(async (key: Request | string) => entries.get(typeof key === "string" ? key : key.url)?.clone()),
+      put: vi.fn(async (key: Request | string, response: Response) => {
+        entries.set(typeof key === "string" ? key : key.url, response.clone());
+      }),
+    };
+    vi.stubGlobal("caches", { default: cache });
+    const env = {
+      DB: db, DEV_OWNER: "", SEARCH_DAILY_LIMIT: "1",
+      CF_VERSION_METADATA: { id: "deploy-1" },
+      ACCESS_TEAM_DOMAIN: "", ACCESS_AUD: "", OWNER_EMAILS: "", OWNER_SERVICE_TOKEN_IDS: "",
+    } as Env;
+    jevCalls.responses.push(
+      { answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, topic_secret: { noul: 0.1 }, period: { probabilities: { "2015": 0.1, none: 0.9 } }, intent: { choice: "one" }, strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.8 }, strategy_words: { noul: 0.2 } }, inputTokens: 100 },
+      { answers: { c0: { noul: 0.93 } }, inputTokens: 100 },
+    );
+    const request = () => new Request("https://archive.test/api/search?as=visitor", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ preset_id: id, topics: ["not-allowed"], kinds: ["invalid"], from: "invalid", to: "also-invalid" }),
+    });
+    const initialJevCalls = jevCalls.requests.length;
+    const first = await app.fetch(request(), env);
+    expect(first.status).toBe(200);
+    const firstBody = await first.json() as { q: string; results: Array<{ tweet: { id: string } }> };
+    expect(firstBody.q).toBe(query);
+    expect(firstBody.results.map(({ tweet: result }) => result.id)).toEqual(["1"]);
+    expect(jevCalls.requests).toHaveLength(initialJevCalls + 2);
+    expect(sqlite.prepare("SELECT value FROM meta WHERE key LIKE 'search_count:%'").get()).toEqual({ value: "1" });
+
+    const second = await app.fetch(request(), env);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual(firstBody);
+    expect(jevCalls.requests).toHaveLength(initialJevCalls + 2);
+    expect(sqlite.prepare("SELECT value FROM meta WHERE key LIKE 'search_count:%'").get()).toEqual({ value: "1" });
+    expect(cache.match).toHaveBeenCalledTimes(2);
+    expect(cache.put).toHaveBeenCalledTimes(1);
+    const cacheKey = cache.match.mock.calls[0][0] as Request;
+    const cacheUrl = new URL(cacheKey.url);
+    expect(cacheUrl.pathname).toBe(`/api/search/presets/${id}`);
+    expect(cacheUrl.searchParams.get("v")).toBe("v1");
+    expect(cacheUrl.searchParams.get("as")).toBe("visitor");
+    expect(cacheUrl.searchParams.get("cv")).toBe("deploy-1");
+  });
+});
+
 describe("SQL candidates", () => {
   it("removes restricted topics at display threshold and keeps lexical or judged matches", async () => {
     const { db, sqlite } = database();
@@ -171,13 +310,17 @@ describe("search ranking and route", () => {
   it("returns the response contract and enforces the visitor daily limit", async () => {
     const { db, sqlite } = database();
     tweet(sqlite, "1", "영화 이야기"); score(sqlite, "1", "film", 0.9);
+    const visitorPresetId = "visitor-film";
+    sqlite.prepare("INSERT INTO meta (key, value) VALUES ('public_search_presets', ?)")
+      .run(JSON.stringify([{ id: visitorPresetId, label: "영화", query: "영화" }]));
     jevCalls.responses.push(
       { answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, period: { probabilities: { "2015": 0.1, none: 0.9 } }, intent: { choice: "one" }, strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.8 }, strategy_words: { noul: 0.2 } }, inputTokens: 100 },
       { answers: { c0: { noul: 0.93 } }, inputTokens: 100 },
     );
     const env = { DB: db, DEV_OWNER: "1", SEARCH_DAILY_LIMIT: "1", SITE_TITLE: "test", TYPESAFE_BASE_URL: "https://jev.test", TYPESAFE_API_KEY: "fake", ACCESS_TEAM_DOMAIN: "" } as Env;
     const request = (as = "visitor") => new Request(`https://archive.test/api/search?as=${as}`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "영화" }),
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(as === "visitor" ? { preset_id: visitorPresetId } : { q: "영화" }),
     });
     const first = await app.fetch(request(), env);
     expect(first.status).toBe(200);
@@ -239,6 +382,9 @@ describe("search ranking and route", () => {
 
   it("does not send a year that contains only automatically hidden tweets to Jev", async () => {
     const { db, sqlite } = database();
+    const visitorPresetId = "hidden-year-query";
+    sqlite.prepare("INSERT INTO meta (key, value) VALUES ('public_search_presets', ?)")
+      .run(JSON.stringify([{ id: visitorPresetId, label: "찾을 문구", query: "unmatched query" }]));
     sqlite.prepare(`
       INSERT INTO topics (id, label, question, version, sort_order, active,
         timeline_visibility, search_visibility, public_hide_threshold)
@@ -254,7 +400,7 @@ describe("search ranking and route", () => {
       intent: { choice: "one" }, strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.1 }, strategy_words: { noul: 0.1 },
     }, inputTokens: 100 });
     const response = await app.fetch(new Request("https://archive.test/api/search?as=visitor", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: "unmatched query" }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preset_id: visitorPresetId }),
     }), env);
 
     expect(response.status).toBe(200);

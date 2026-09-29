@@ -238,7 +238,9 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
         const toggle = el('button', `btn${s.all ? ' acid' : ''}`, s.all ? `${related.map(title).join(', ')}만 보기` : '전체 보기');
         toggle.type = 'button'; toggle.addEventListener('click', () => select({ tag: s.tag, all: !s.all })); actions.append(toggle);
       }
-      const search = el('button', 'btn', '이 이름으로 검색 →'); search.type = 'button'; search.addEventListener('click', () => searchFor(tag.label)); actions.append(search);
+      if (ctx.owner && !ctx.preview) {
+        const search = el('button', 'btn', '이 이름으로 검색 →'); search.type = 'button'; search.addEventListener('click', () => searchFor(tag.label)); actions.append(search);
+      }
       if (ctx.owner && !ctx.preview) {
         const edit = el('button', 'btn', '수정'); edit.type = 'button'; edit.addEventListener('click', () => openSettings(tag.id)); actions.append(edit);
       }

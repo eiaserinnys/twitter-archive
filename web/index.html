@@ -118,7 +118,12 @@
     <div class="sr">
       <div class="sr-side">
         <div class="sec-head"><h2><span class="idx">02 / SEARCH</span>검색</h2><p>기억나는 말로<br>뜻 검색</p></div>
-        <p class="intro">기억나는 문장이나 단어를 적어 보세요.</p>
+        <p class="intro" id="searchIntro">기억나는 문장이나 단어를 적어 보세요.</p>
+        <section class="public-search" id="publicSearch" hidden aria-labelledby="publicSearchNotice">
+          <p class="intro" id="publicSearchNotice">공개 버전에서는 API 호출 비용 때문에 자유 검색어가 제한됩니다.</p>
+          <div class="preset-chips" id="presetChips" hidden></div>
+          <p class="preset-load-error" id="presetLoadError" role="status" hidden></p>
+        </section>
         <ul class="ex-list" id="exList"></ul>
         <details class="filters" id="filters">
           <summary><span>필터<span class="fcount" id="fCount"></span></span><span class="plus" aria-hidden="true">+</span></summary>
@@ -180,6 +185,7 @@
     <div class="set-tabs" role="group" aria-label="설정 절">
       <button type="button" id="stTopics" aria-pressed="true">주제 <b id="stTopicsN"></b></button>
       <button type="button" id="stTags" aria-pressed="false">기간 태그 <b id="stTagsN"></b></button>
+      <button type="button" id="stSearchPresets" aria-pressed="false">검색 문구</button>
     </div>
     <section class="set-sec" id="secTopics">
       <div class="set-sec-head"><h3>주제</h3><button class="btn acid" id="topicAdd" type="button">주제 추가 <span class="arr">+</span></button></div>
@@ -218,6 +224,13 @@
       <div class="f-actions"><button class="btn acid" type="submit">저장</button><button class="btn" id="fCancel" type="button">취소</button></div>
     </form>
     <div id="tagList"></div>
+    </section>
+    <section class="set-sec" id="secSearchPresets" hidden>
+      <div class="set-sec-head"><h3>공개 검색 문구</h3><button class="btn acid" id="searchPresetAdd" type="button">문구 추가 <span class="arr">+</span></button></div>
+      <p class="set-note">방문자는 여기에 등록한 문구로만 뜻 검색을 합니다. 최대 20개까지 저장할 수 있습니다.</p>
+      <ul class="toprows" id="searchPresetList"></ul>
+      <p class="f-err search-preset-error" id="searchPresetErr" role="alert" hidden></p>
+      <div class="preset-save"><button class="btn acid" id="searchPresetSave" type="button">저장</button></div>
     </section>
   </div>
 </dialog>
