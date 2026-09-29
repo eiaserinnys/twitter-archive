@@ -47,14 +47,13 @@ function database() {
   return { db, sqlite, binds };
 }
 
-function insertTweets(sqlite: DatabaseSync, count: number) {
+function insertTweets(sqlite: DatabaseSync, count: number, createdAt = "2024-01-01T00:00:00.000Z") {
   const insert = sqlite.prepare(`
     INSERT INTO tweets (id, created_at, date_kst, year, month, kind, text, source)
     VALUES (?, ?, ?, 2024, 1, 'original', ?, 'archive')
   `);
   for (let index = 1; index <= count; index++) {
     const id = `tweet-${String(index).padStart(4, "0")}`;
-    const createdAt = new Date(Date.UTC(2024, 0, 1, 0, 0, index)).toISOString();
     insert.run(id, createdAt, "2024-01-01", `Synthetic tweet ${index}`);
   }
 }
@@ -125,7 +124,7 @@ describe("D1 bind variable limit", () => {
       INSERT INTO topics (id, label, question, version, sort_order, active)
       VALUES ('games', 'Games', 'video games', 'v1', 1, 1)
     `).run();
-    insertTweets(sqlite, 250);
+    insertTweets(sqlite, 250, new Date(Date.now() - 60 * 60 * 1000).toISOString());
     const jevFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body)) as { questions: Record<string, unknown> };
       const answers = Object.fromEntries(Object.keys(request.questions).map((id) => [id, { noul: 0.9 }]));
@@ -139,8 +138,9 @@ describe("D1 bind variable limit", () => {
       expect(result).toEqual({ scored: 250, stoppedForBudget: false });
       expect(jevFetch).toHaveBeenCalledTimes(250);
       expect(sqlite.prepare("SELECT COUNT(*) AS count FROM scores").get()).toEqual({ count: 250 });
-      expect(binds.some(({ query, values }) => query.includes("ORDER BY t.created_at DESC")
-        && query.includes("LIMIT ?") && values.length === 1 && values[0] === 400)).toBe(true);
+      expect(binds.some(({ query, values }) => query.includes("created_at >= ?")
+        && query.includes("ORDER BY t.created_at DESC")
+        && query.includes("LIMIT ?") && values.at(-1) === 400)).toBe(true);
       expect(binds.every(({ count }) => count <= 100)).toBe(true);
     } finally {
       vi.unstubAllGlobals();

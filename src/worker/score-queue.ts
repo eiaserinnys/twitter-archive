@@ -44,6 +44,16 @@ interface ScoreCandidate {
   topics: VersionedTopic[];
 }
 
+interface RescoreJob {
+  key: string;
+  value: string;
+}
+
+interface RescoreState {
+  version: string;
+  cursor: string;
+}
+
 export function buildJevRequest(tweet: NormalizedTweet, topics: MissingTopic[]): JevRequest {
   const questions = Object.fromEntries(topics.map((topic) => [topic.id, {
     type: "noul" as const,
@@ -68,58 +78,51 @@ function tweetContext(id: string | null, text: string | null, author?: string | 
   return { id, text: text ?? "", ...(author ? { author } : {}) };
 }
 
-async function candidates(env: Env, limit: number): Promise<ScoreCandidate[]> {
-  const tweets = await env.DB.prepare(`
-    SELECT t.id, t.created_at, t.date_kst, t.year, t.month, t.kind, t.text,
-      t.parent_id, t.parent_text, t.parent_author, t.quoted_id, t.quoted_text, t.lang, t.source
-    FROM tweets t
-    WHERE EXISTS (
-      SELECT 1 FROM topics tp
+async function candidatesForTweets(
+  env: Env,
+  tweets: TweetRow[],
+  topicId?: string,
+): Promise<ScoreCandidate[]> {
+  if (tweets.length === 0) return [];
+  const ids = tweets.map((tweet) => tweet.id);
+  const pendingRows = await queryIdChunks(ids, async (chunk) => {
+    const placeholders = chunk.map(() => "?").join(", ");
+    const topicClause = topicId ? "AND tp.id = ?" : "";
+    const result = await env.DB.prepare(`
+      SELECT t.id AS tweet_id, tp.id, tp.question, tp.version
+      FROM tweets t
+      JOIN topics tp ON tp.active = 1
       LEFT JOIN scores s ON s.tweet_id = t.id AND s.topic = tp.id AND s.version = tp.version
-      WHERE tp.active = 1 AND s.tweet_id IS NULL
-    )
-    ORDER BY t.created_at DESC, t.id DESC
-    LIMIT ?
-  `).bind(limit).all<TweetRow>();
-  if (tweets.results.length === 0) return [];
-
-  const ids = tweets.results.map((tweet) => tweet.id);
-  const [pendingRows, mediaRows] = await Promise.all([
-    queryIdChunks(ids, async (chunk) => {
-      const placeholders = chunk.map(() => "?").join(", ");
-      const result = await env.DB.prepare(`
-        SELECT t.id AS tweet_id, tp.id, tp.question, tp.version
-        FROM tweets t
-        JOIN topics tp ON tp.active = 1
-        LEFT JOIN scores s ON s.tweet_id = t.id AND s.topic = tp.id AND s.version = tp.version
-        WHERE t.id IN (${placeholders}) AND s.tweet_id IS NULL
-        ORDER BY t.created_at DESC, t.id DESC, tp.sort_order, tp.id
-      `).bind(...chunk).all<PendingTopicRow>();
-      return result.results;
-    }),
-    queryIdChunks(ids, async (chunk) => {
-      const placeholders = chunk.map(() => "?").join(", ");
-      const result = await env.DB.prepare(`
-        SELECT tweet_id, type, r2_key, width, height, alt
-        FROM media WHERE tweet_id IN (${placeholders})
-        ORDER BY tweet_id, idx
-      `).bind(...chunk).all<MediaRow>();
-      return result.results;
-    }),
-  ]);
+      WHERE t.id IN (${placeholders}) AND s.tweet_id IS NULL ${topicClause}
+      ORDER BY t.created_at DESC, t.id DESC, tp.sort_order, tp.id
+    `).bind(...chunk, ...(topicId ? [topicId] : [])).all<PendingTopicRow>();
+    return result.results;
+  }, topicId ? 1 : 0);
   const topicsByTweet = new Map<string, VersionedTopic[]>();
   for (const row of pendingRows) {
     const list = topicsByTweet.get(row.tweet_id) ?? [];
     list.push({ id: row.id, question: row.question, version: row.version });
     topicsByTweet.set(row.tweet_id, list);
   }
+  const eligibleTweets = tweets.filter((tweet) => topicsByTweet.has(tweet.id));
+  if (eligibleTweets.length === 0) return [];
+  const eligibleIds = eligibleTweets.map((tweet) => tweet.id);
+  const mediaRows = await queryIdChunks(eligibleIds, async (chunk) => {
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await env.DB.prepare(`
+      SELECT tweet_id, type, r2_key, width, height, alt
+      FROM media WHERE tweet_id IN (${placeholders})
+      ORDER BY tweet_id, idx
+    `).bind(...chunk).all<MediaRow>();
+    return result.results;
+  });
   const mediaByTweet = new Map<string, TweetMedia[]>();
   for (const row of mediaRows) {
     const list = mediaByTweet.get(row.tweet_id) ?? [];
     list.push({ type: row.type, r2_key: row.r2_key, width: row.width, height: row.height, alt: row.alt });
     mediaByTweet.set(row.tweet_id, list);
   }
-  return tweets.results.map((row) => ({
+  return eligibleTweets.map((row) => ({
     tweet: {
       id: row.id,
       created_at_utc: row.created_at,
@@ -135,7 +138,37 @@ async function candidates(env: Env, limit: number): Promise<ScoreCandidate[]> {
       media: mediaByTweet.get(row.id) ?? [],
     },
     topics: topicsByTweet.get(row.id) ?? [],
-  })).filter((candidate) => candidate.topics.length > 0);
+  }));
+}
+
+async function recentPendingTweets(env: Env, limit: number): Promise<TweetRow[]> {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const result = await env.DB.prepare(`
+    SELECT t.id, t.created_at, t.date_kst, t.year, t.month, t.kind, t.text,
+      t.parent_id, t.parent_text, t.parent_author, t.quoted_id, t.quoted_text, t.lang, t.source
+    FROM tweets t
+    WHERE t.created_at >= ? AND EXISTS (
+      SELECT 1 FROM topics tp
+      LEFT JOIN scores s ON s.tweet_id = t.id AND s.topic = tp.id AND s.version = tp.version
+      WHERE tp.active = 1 AND s.tweet_id IS NULL
+    )
+    ORDER BY t.created_at DESC, t.id DESC
+    LIMIT ?
+  `).bind(cutoff, limit).all<TweetRow>();
+  return result.results;
+}
+
+async function tweetsByIds(env: Env, ids: string[]): Promise<TweetRow[]> {
+  return queryIdChunks(ids, async (chunk) => {
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await env.DB.prepare(`
+      SELECT id, created_at, date_kst, year, month, kind, text,
+        parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
+      FROM tweets WHERE id IN (${placeholders})
+      ORDER BY created_at DESC, id DESC
+    `).bind(...chunk).all<TweetRow>();
+    return result.results;
+  });
 }
 
 function scoreValues(request: JevRequest, answers: Record<string, { noul?: number }>): Array<{ id: string; score: number }> {
@@ -167,14 +200,20 @@ function scoreStatements(
   return statements;
 }
 
-export async function scorePendingTweets(env: Env): Promise<{ scored: number; stoppedForBudget: boolean }> {
+function scoreBatchSize(env: Env): number {
   const batchSize = Number(env.SCORE_BATCH);
-  const capUsd = Number(env.JEV_MONTHLY_USD_CAP);
   if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error("SCORE_BATCH must be a positive integer.");
-  if (!Number.isFinite(capUsd) || capUsd < 0) throw new Error("JEV_MONTHLY_USD_CAP must be a non-negative number.");
+  return batchSize;
+}
 
-  const work = await candidates(env, batchSize);
-  if (work.length === 0) return { scored: 0, stoppedForBudget: false };
+async function scoreWork(env: Env, work: ScoreCandidate[]): Promise<{
+  scored: number;
+  stoppedForBudget: boolean;
+  failed: number;
+}> {
+  const capUsd = Number(env.JEV_MONTHLY_USD_CAP);
+  if (!Number.isFinite(capUsd) || capUsd < 0) throw new Error("JEV_MONTHLY_USD_CAP must be a non-negative number.");
+  if (work.length === 0) return { scored: 0, stoppedForBudget: false, failed: 0 };
 
   const monthKey = `jev_usd:${new Date().toISOString().slice(0, 7)}`;
   const usageRow = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(monthKey).first<{ value: string | null }>();
@@ -184,6 +223,7 @@ export async function scorePendingTweets(env: Env): Promise<{ scored: number; st
   let reservedUsd = 0;
   let nextIndex = 0;
   let scored = 0;
+  let failed = 0;
   let stoppedForBudget = spentUsd >= capUsd;
   const worker = async (): Promise<void> => {
     while (nextIndex < work.length) {
@@ -206,6 +246,7 @@ export async function scorePendingTweets(env: Env): Promise<{ scored: number; st
       } catch (error) {
         console.error(`Could not score tweet ${item.tweet.id}; it will remain pending.`, error);
         reservedUsd -= estimatedCostUsd;
+        failed += 1;
         continue;
       }
 
@@ -221,5 +262,74 @@ export async function scorePendingTweets(env: Env): Promise<{ scored: number; st
   };
 
   await Promise.all(Array.from({ length: Math.min(6, work.length) }, () => worker()));
+  return { scored, stoppedForBudget, failed };
+}
+
+export async function scoreCollectedTweets(env: Env, ids: string[]): Promise<{ scored: number; stoppedForBudget: boolean }> {
+  scoreBatchSize(env);
+  const tweets = await tweetsByIds(env, [...new Set(ids)]);
+  const work = await candidatesForTweets(env, tweets);
+  const result = await scoreWork(env, work);
+  return { scored: result.scored, stoppedForBudget: result.stoppedForBudget };
+}
+
+export async function scorePendingTweets(env: Env): Promise<{ scored: number; stoppedForBudget: boolean }> {
+  const batchSize = scoreBatchSize(env);
+  const tweets = await recentPendingTweets(env, batchSize);
+  const work = await candidatesForTweets(env, tweets);
+  const result = await scoreWork(env, work);
+  return { scored: result.scored, stoppedForBudget: result.stoppedForBudget };
+}
+
+async function removeRescoreJob(env: Env, key: string, value: string): Promise<void> {
+  await env.DB.prepare("DELETE FROM meta WHERE key = ? AND value = ?").bind(key, value).run();
+}
+
+export async function processRescoreJobs(env: Env): Promise<{ scored: number; stoppedForBudget: boolean }> {
+  const jobs = await env.DB.prepare(`
+    SELECT key, value FROM meta WHERE key >= 'rescore:' AND key < 'rescore;'
+  `).all<RescoreJob>();
+  if (jobs.results.length === 0) return { scored: 0, stoppedForBudget: false };
+
+  const batchSize = scoreBatchSize(env);
+  let scored = 0;
+  let stoppedForBudget = false;
+  for (const job of jobs.results) {
+    const state = JSON.parse(job.value) as RescoreState;
+    const topic = await env.DB.prepare("SELECT version, active FROM topics WHERE id = ?")
+      .bind(job.key.slice("rescore:".length)).first<{ version: string; active: number }>();
+    if (!topic || !topic.active || topic.version !== state.version) {
+      await removeRescoreJob(env, job.key, job.value);
+      continue;
+    }
+
+    const tweets = await env.DB.prepare(`
+      SELECT id, created_at, date_kst, year, month, kind, text,
+        parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
+      FROM tweets WHERE id > ? ORDER BY id LIMIT ?
+    `).bind(state.cursor, batchSize).all<TweetRow>();
+    if (tweets.results.length === 0) {
+      await removeRescoreJob(env, job.key, job.value);
+      continue;
+    }
+
+    const topicId = job.key.slice("rescore:".length);
+    const work = await candidatesForTweets(env, tweets.results, topicId);
+    const result = await scoreWork(env, work);
+    scored += result.scored;
+    if (result.failed > 0 || result.stoppedForBudget) {
+      stoppedForBudget ||= result.stoppedForBudget;
+      if (result.stoppedForBudget) break;
+      continue;
+    }
+
+    if (tweets.results.length < batchSize) {
+      await removeRescoreJob(env, job.key, job.value);
+    } else {
+      const nextState = JSON.stringify({ version: state.version, cursor: tweets.results[tweets.results.length - 1].id });
+      await env.DB.prepare("UPDATE meta SET value = ? WHERE key = ? AND value = ?")
+        .bind(nextState, job.key, job.value).run();
+    }
+  }
   return { scored, stoppedForBudget };
 }
