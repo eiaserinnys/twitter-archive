@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { normalizeV2Response } from "../src/worker/collect/normalize-v2.js";
+import { collectNewTweets } from "../src/worker/collect/index.js";
 import { buildJevRequest, canReserveJevSpend } from "../src/worker/score-queue.js";
+import type { Env } from "../src/worker/env.js";
 import type { NormalizedTweet } from "../src/shared/types.js";
 
 const v2Response = {
@@ -120,6 +122,39 @@ describe("X API v2 collection normalization", () => {
     expect(rows[1].tweet.parent).toEqual({ id: "900", text: "Parent & body", author: "friend" });
     expect(rows[2].tweet.parent).toEqual({ id: "101", text: "Long original", author: "archive-owner" });
     expect(rows[3].tweet.quoted).toEqual({ id: "800", text: "Quoted body" });
+  });
+});
+
+describe("initial X collection", () => {
+  it("collects only the newest 100 posts when no cursor exists", async () => {
+    const statement = {
+      bind() { return statement; },
+      all: async () => ({ results: [], success: true, meta: { changes: 0 } }),
+      first: async () => null,
+      run: async () => ({ results: [], success: true, meta: { changes: 0 } }),
+    };
+    const db = {
+      prepare: () => statement,
+      batch: async () => [],
+    };
+    const env = { DB: db, X_USER_ID: "self", X_BEARER_TOKEN: "test-token" } as unknown as Env;
+    const requests: URL[] = [];
+    const posts = Array.from({ length: 100 }, (_, index) => ({
+      id: String(1000 + index),
+      author_id: "self",
+      created_at: "2024-01-01T00:00:00.000Z",
+      text: "Synthetic initial post",
+    }));
+    const fetchImpl: typeof fetch = async (input) => {
+      requests.push(input instanceof URL ? input : new URL(String(input)));
+      return Response.json({ data: posts, meta: { next_token: "next-page" } });
+    };
+
+    await collectNewTweets(env, fetchImpl);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].searchParams.get("max_results")).toBe("100");
+    expect(requests[0].searchParams.has("since_id")).toBe(false);
   });
 });
 
