@@ -10,6 +10,7 @@ run_worker_first = ["/api/*", "/media/*", "/owner"]
 
 [vars]
 SITE_TITLE = "Tweet Archive"
+SEARCH_DAILY_LIMIT = "200"
 ACCOUNT_HANDLE = ""
 OWNER_EMAILS = ""
 OWNER_SERVICE_TOKEN_IDS = ""

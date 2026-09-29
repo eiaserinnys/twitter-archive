@@ -7,6 +7,7 @@ import timelineRoute from "./routes/timeline.js";
 import tweetsRoute from "./routes/tweets.js";
 import topicsRoute from "./routes/topics.js";
 import tagsRoute from "./routes/tags.js";
+import searchRoute from "./routes/search.js";
 import { handleScheduled } from "./scheduled.js";
 
 const app = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
@@ -23,6 +24,7 @@ app.route("/", timelineRoute);
 app.route("/", tweetsRoute);
 app.route("/", topicsRoute);
 app.route("/", tagsRoute);
+app.route("/", searchRoute);
 
 app.get("/owner", (context) => context.redirect("/", 302));
 app.get("/media/*", async (context) => {
