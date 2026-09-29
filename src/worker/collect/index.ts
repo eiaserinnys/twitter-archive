@@ -114,7 +114,7 @@ async function persistTweets(env: Env, tweets: NormalizedV2Tweet[]): Promise<voi
   }
 }
 
-export async function collectNewTweets(env: Env, fetchImpl: typeof fetch = fetch): Promise<number> {
+export async function collectNewTweets(env: Env, fetchImpl: typeof fetch = fetch): Promise<string[]> {
   if (!env.X_USER_ID) throw new Error("X_USER_ID is required for scheduled collection.");
   if (!env.X_BEARER_TOKEN) throw new Error("X_BEARER_TOKEN is required for scheduled collection.");
 
@@ -149,5 +149,5 @@ export async function collectNewTweets(env: Env, fetchImpl: typeof fetch = fetch
   if (!env.DB.batch) throw new Error("D1 batch execution is unavailable.");
   const results = await env.DB.batch(statements);
   if (results.some((result) => !result.success)) throw new Error("D1 rejected X collection metadata.");
-  return tweets.length;
+  return tweets.map(({ tweet }) => tweet.id);
 }

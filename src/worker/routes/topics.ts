@@ -21,6 +21,20 @@ function rescoreEstimate(tweets: number, scoreBatch: string) {
   };
 }
 
+function rescoreStatement(context: AppContext, id: string, version: string) {
+  return context.env.DB.prepare(`
+    INSERT INTO meta (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).bind(`rescore:${id}`, JSON.stringify({ version, cursor: "" }));
+}
+
+async function runBatch(context: AppContext, statements: ReturnType<Env["DB"]["prepare"]>[]) {
+  if (!context.env.DB.batch) throw new Error("D1 batch execution is unavailable.");
+  const results = await context.env.DB.batch(statements);
+  if (results.some((result) => !result.success)) throw new Error("D1 rejected a topic update batch.");
+  return results;
+}
+
 async function ownerTopicInfo(context: AppContext, id: string): Promise<TopicInfo | null> {
   return getTopicInfo(context.env.DB, id);
 }
@@ -37,12 +51,12 @@ route.post("/api/topics", async (context: AppContext) => {
   const sortOrder = Math.max(0, ...rows.map((row) => row.sort_order)) + 1;
   const id = randomId("t_");
   const version = String(Date.now());
-  await context.env.DB.prepare(`
+  await runBatch(context, [context.env.DB.prepare(`
     INSERT INTO topics (id, label, question, version, sort_order, active,
       timeline_visibility, search_visibility)
     VALUES (?, ?, ?, ?, ?, 1, ?, ?)
   `).bind(id, body.label, body.question, version, sortOrder,
-    body.timeline_visibility, body.search_visibility).run();
+    body.timeline_visibility, body.search_visibility), rescoreStatement(context, id, version)]);
   const [topic, stats] = await Promise.all([
     ownerTopicInfo(context, id),
     getTweetStats(context.env.DB),
@@ -77,8 +91,14 @@ route.patch("/api/topics/:id", async (context: AppContext) => {
   if (updates.length > 0) {
     const values = updates.map(([key]) => key === "version" ? String(Date.now()) : body[key]);
     const setClause = updates.map(([, column]) => `${column} = ?`).join(", ");
-    await context.env.DB.prepare(`UPDATE topics SET ${setClause} WHERE id = ?`)
-      .bind(...values, current.id).run();
+    const update = context.env.DB.prepare(`UPDATE topics SET ${setClause} WHERE id = ?`)
+      .bind(...values, current.id);
+    if (questionChanged) {
+      const version = String(values[updates.findIndex(([key]) => key === "version")]);
+      await runBatch(context, [update, rescoreStatement(context, current.id, version)]);
+    } else {
+      await update.run();
+    }
   }
   const [topic, stats] = await Promise.all([
     ownerTopicInfo(context, current.id),
@@ -95,9 +115,12 @@ route.patch("/api/topics/:id", async (context: AppContext) => {
 route.delete("/api/topics/:id", async (context: AppContext) => {
   const denied = ownerOnly(context);
   if (denied) return denied;
-  const result = await context.env.DB.prepare("UPDATE topics SET active = 0 WHERE id = ?")
-    .bind(context.req.param("id") ?? "").run();
-  if (!result.meta.changes) return context.json({ error: "not_found" }, 404);
+  const id = context.req.param("id") ?? "";
+  const results = await runBatch(context, [
+    context.env.DB.prepare("UPDATE topics SET active = 0 WHERE id = ?").bind(id),
+    context.env.DB.prepare("DELETE FROM meta WHERE key = ?").bind(`rescore:${id}`),
+  ]);
+  if (!results[0].meta.changes) return context.json({ error: "not_found" }, 404);
   return context.json({ ok: true });
 });
 
