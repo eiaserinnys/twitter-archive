@@ -13,6 +13,7 @@ export interface D1PreparedStatement {
 
 export interface D1Database {
   prepare(query: string): D1PreparedStatement;
+  batch?(statements: D1PreparedStatement[]): Promise<D1Result<Record<string, unknown>>[]>;
 }
 
 export interface R2ObjectBody {
@@ -23,6 +24,11 @@ export interface R2ObjectBody {
 
 export interface R2Bucket {
   get(key: string): Promise<R2ObjectBody | null>;
+  put(
+    key: string,
+    value: ArrayBuffer | ArrayBufferView | ReadableStream<Uint8Array> | string,
+    options?: { httpMetadata?: { contentType?: string } },
+  ): Promise<unknown>;
 }
 
 export interface Env {
@@ -39,6 +45,9 @@ export interface Env {
   ACCESS_TEAM_DOMAIN: string;
   ACCESS_AUD: string;
   SCORE_BATCH: string;
+  X_USER_ID: string;
+  JEV_MONTHLY_USD_CAP: string;
+  X_BEARER_TOKEN: string;
   DEV_OWNER?: string;
 }
 

@@ -2,6 +2,9 @@ name = "twitter-archive"
 main = "src/worker/index.ts"
 compatibility_date = "2026-09-29"
 
+[triggers]
+crons = ["*/30 * * * *", "* * * * *"]
+
 [assets]
 directory = "./web"
 binding = "ASSETS"
@@ -17,6 +20,8 @@ OWNER_SERVICE_TOKEN_IDS = ""
 ACCESS_TEAM_DOMAIN = ""
 ACCESS_AUD = ""
 SCORE_BATCH = "400"
+X_USER_ID = ""
+JEV_MONTHLY_USD_CAP = "5"
 
 [[d1_databases]]
 binding = "DB"
