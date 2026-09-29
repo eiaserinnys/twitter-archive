@@ -162,6 +162,7 @@
 
 <footer class="site-foot">
   <span id="footNote"></span>
+  <a id="sourceLink" class="source-link" hidden>소스 코드 ↗</a>
   <span id="ownerLinkWrap" hidden><a href="/owner">소유자 로그인</a></span>
 </footer>
 </div>
@@ -182,11 +183,13 @@
     </div>
     <section class="set-sec" id="secTopics">
       <div class="set-sec-head"><h3>주제</h3><button class="btn acid" id="topicAdd" type="button">주제 추가 <span class="arr">+</span></button></div>
-      <p class="set-note">트윗마다 아래 문구에 맞는 정도를 0~1로 매겨 표시 기준 이상이면 그 주제로 셉니다. 연표 표시와 검색을 따로 정합니다. <b>나만</b>은 방문자 화면에서 빠지고, <b>숨김</b>은 내 화면에서도 빠집니다. 트윗 자체는 날짜로 보는 오늘 탭에서 누구에게나 그대로 보입니다.</p>
+      <p class="set-note">트윗마다 아래 문구에 맞는 정도를 0~1로 매겨 표시 기준 이상이면 그 주제로 셉니다. 연표 표시와 검색을 따로 정합니다. <b>나만</b>은 방문자 화면에서 빠지고, <b>숨김</b>은 내 화면에서도 빠집니다.</p>
+      <p class="public-hidden-summary">공개에서 숨겨지는 트윗 <b id="hiddenCount">0</b>개 · <a href="/?public_hidden=1">숨김 트윗 보기 ↗</a></p>
       <form class="tform" id="topicForm" hidden novalidate>
         <h4 class="tform-title" id="tpTitle">새 주제</h4>
         <label class="f"><span class="fl">표시 이름</span><input type="text" id="tpName" maxlength="40" autocomplete="off" required></label>
         <label class="f"><span class="fl">Jev에 묻는 문구</span><textarea id="tpPrompt" rows="3" maxlength="200" placeholder="주제에 해당하는 트윗을 설명해 주세요"></textarea></label>
+        <label class="f"><span class="fl">공개 버전에서 숨길 점수</span><input type="number" id="tpHide" min="0" max="1" step="any" placeholder="비우면 숨기지 않음"></label>
         <p class="f-err" id="tpErr" role="alert" hidden></p>
         <div class="f-actions"><button class="btn acid" type="submit">저장</button><button class="btn" id="tpCancel" type="button">취소</button></div>
       </form>

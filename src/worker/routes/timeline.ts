@@ -43,6 +43,7 @@ route.get("/api/timeline", async (context: AppContext) => {
       return { years: shapeTimelineRows(rows), tags: { long, short_counts: shortCounts } };
     },
     today,
+    context.env.CF_VERSION_METADATA?.id,
   );
   return context.json(response);
 });
@@ -80,6 +81,7 @@ route.get("/api/timeline/:year", async (context: AppContext) => {
       return { year, months, tags };
     },
     today,
+    context.env.CF_VERSION_METADATA?.id,
   );
   return context.json(response);
 });

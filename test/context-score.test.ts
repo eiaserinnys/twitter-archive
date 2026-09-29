@@ -47,7 +47,7 @@ describe("scoring input", () => {
       instructions: "이 트윗은 정치, 선거, 정책, 사회 문제에 관한 이야기인가?",
       criteria: { true: "그렇다", false: "아니다" },
     });
-    expect(Object.keys(payload.questions)).toHaveLength(13);
+    expect(Object.keys(payload.questions)).toHaveLength(14);
   });
 
   it("uses an instance topic file for scoring and D1 seed SQL", async () => {

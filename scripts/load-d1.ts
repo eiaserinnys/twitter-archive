@@ -43,8 +43,14 @@ export function buildSql(tweets: NormalizedTweet[], scores: ScoreRow[], topicSee
     topic.version ?? topicSeed.version,
     index + 1,
     1,
+    topic.timeline_visibility ?? "public",
+    topic.search_visibility ?? "public",
+    topic.public_hide_threshold,
   ]);
-  statements.push(...insertStatements("topics", ["id", "label", "question", "version", "sort_order", "active"], topicRows));
+  statements.push(...insertStatements("topics", [
+    "id", "label", "question", "version", "sort_order", "active",
+    "timeline_visibility", "search_visibility", "public_hide_threshold",
+  ], topicRows));
 
   const tweetRows = tweets.map((tweet) => [
     tweet.id,

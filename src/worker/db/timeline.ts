@@ -1,7 +1,7 @@
 import type { Viewer } from "../auth.js";
 import type { D1Database } from "../env.js";
 import { TOPIC_SEED } from "../../shared/topics.js";
-import type { TimelineCountRow } from "../visibility.js";
+import { publicHiddenSql, type TimelineCountRow } from "../visibility.js";
 
 function visibleTopicClause(viewer: Viewer): string {
   return viewer.viewingAs === "owner"
@@ -17,6 +17,7 @@ export async function getTimelineCounts(db: D1Database, viewer: Viewer): Promise
     LEFT JOIN scores s ON s.tweet_id = t.id
     LEFT JOIN topics tp ON tp.id = s.topic AND tp.active = 1 AND tp.version = s.version
       AND s.score >= ? AND ${visibleTopicClause(viewer)}
+    WHERE ${viewer.viewingAs === "visitor" ? `NOT ${publicHiddenSql("t")}` : "1 = 1"}
     GROUP BY t.year, tp.id
     ORDER BY t.year, tp.sort_order, tp.id
   `).bind(TOPIC_SEED.display_threshold).all<TimelineCountRow>();
@@ -38,7 +39,7 @@ export async function getMonthCounts(db: D1Database, year: number, viewer: Viewe
     LEFT JOIN scores s ON s.tweet_id = t.id
     LEFT JOIN topics tp ON tp.id = s.topic AND tp.active = 1 AND tp.version = s.version
       AND s.score >= ? AND ${visibleTopicClause(viewer)}
-    WHERE t.year = ?
+    WHERE t.year = ? AND ${viewer.viewingAs === "visitor" ? `NOT ${publicHiddenSql("t")}` : "1 = 1"}
     GROUP BY t.month, tp.id
     ORDER BY t.month, tp.sort_order, tp.id
   `).bind(TOPIC_SEED.display_threshold, year).all<MonthCountRow>();
@@ -67,19 +68,20 @@ export async function getCalendarCounts(
     LEFT JOIN scores s ON s.tweet_id = t.id
     LEFT JOIN topics tp ON tp.id = s.topic AND tp.active = 1 AND tp.version = s.version
       AND s.score >= ? AND ${visibleTopicClause(viewer)}
-    WHERE t.year = ? AND t.month = ?
+    WHERE t.year = ? AND t.month = ? AND ${viewer.viewingAs === "visitor" ? `NOT ${publicHiddenSql("t")}` : "1 = 1"}
     GROUP BY t.date_kst, tp.id
     ORDER BY t.date_kst, score_sum DESC, tp.sort_order, tp.id
   `).bind(TOPIC_SEED.display_threshold, year, month).all<CalendarCountRow>();
   return result.results;
 }
 
-export async function getDatesForOnThisDay(db: D1Database): Promise<Array<{ year: number; date: string }>> {
+export async function getDatesForOnThisDay(db: D1Database, viewer: Viewer): Promise<Array<{ year: number; date: string }>> {
   const result = await db.prepare(`
-    SELECT year, date_kst AS date
-    FROM tweets
-    GROUP BY year, date_kst
-    ORDER BY year, date_kst
+    SELECT t.year, t.date_kst AS date
+    FROM tweets t
+    WHERE ${viewer.viewingAs === "visitor" ? `NOT ${publicHiddenSql("t")}` : "1 = 1"}
+    GROUP BY t.year, t.date_kst
+    ORDER BY t.year, t.date_kst
   `).all<{ year: number; date: string }>();
   return result.results;
 }

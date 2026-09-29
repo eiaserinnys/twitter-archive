@@ -10,8 +10,9 @@ A self-hosted archive for a single X account. Browse by year and topic, search b
 - **검색**: 기억나는 대로 적은 문장으로 찾습니다. Jev가 질의의 주제와 시기를 판정해 후보를 줄이고, 남은 후보에 순위를 매깁니다.
 - **오늘**: 몇 년 전 같은 날의 트윗과 날짜별 달력.
 - **기간 태그**: 경력, 그 무렵의 게임, 영화, 책 같은 것을 기간으로 표시해 연표 옆에 띄웁니다. 전체 기간 보기에서는 긴 태그만, 월 단위 보기에서는 짧은 태그까지 보입니다.
-- **공개 범위**: 보는 사람을 소유자와 방문자로 나눕니다. 주제마다 연표 표시와 검색을 각각 공개, 소유자만, 숨김으로 정하고, 기간 태그도 공개와 소유자만으로 나눕니다. 막는 대상은 주제별 모아 보기이며, 트윗 하나하나는 날짜 화면에서 그대로 보입니다.
-- **설정**: 주제(Jev에 묻는 문구)와 기간 태그를 화면에서 추가, 수정, 삭제합니다. 문구를 바꾼 주제는 그 주제만 다시 채점합니다.
+- **공개 범위**: 보는 사람을 소유자와 방문자로 나눕니다. 주제별 숨김 점수와 트윗별 공개 설정으로 방문자 목록, 검색, 집계에서 트윗을 숨깁니다. 기간 태그도 공개와 소유자만으로 나눕니다.
+- **설정**: 주제(Jev에 묻는 문구와 공개 숨김 점수)와 기간 태그를 화면에서 추가, 수정, 삭제합니다. 문구를 바꾼 주제는 그 주제만 다시 채점합니다.
+- **소스 코드**: 설정한 `SOURCE_URL`을 화면 하단에 표시합니다. 비워 두면 링크를 표시하지 않습니다.
 - **자동 수집**: 새 트윗을 주기적으로 가져와 미디어를 저장하고 채점합니다.
 
 ## 현재 상태
@@ -27,6 +28,8 @@ A self-hosted archive for a single X account. Browse by year and topic, search b
 
 기본 주제는 `src/shared/topics.json`에 있습니다. 첫 적재 때 이 값이 D1 `topics` 테이블에 들어가고, 그 뒤로는 D1이 정본입니다.
 
+기본 `sensitive` 주제는 정치적이거나 사회적으로 논쟁을 부를 수 있는 주장을 판정합니다. 점수 0.5 이상은 방문자에게 숨깁니다. 소유자는 주제별 문턱을 바꾸고 트윗마다 `자동`, `공개에서 숨김`, `항상 공개`를 선택할 수 있습니다.
+
 | id | 표시 이름 | Jev에 묻는 문구 |
 |---|---|---|
 | politics | 정치 | 정치, 선거, 정책, 사회 문제 |
@@ -38,6 +41,7 @@ A self-hosted archive for a single X account. Browse by year and topic, search b
 | books | 책 | 책, 독서, 소설 |
 | music | 음악 | 음악, 노래, 가수, 공연 |
 | tech | AI와 기술 | AI, 프로그래밍, IT 기술과 기기 |
+| sensitive | 민감 | 정치적이거나 사회적으로 논쟁을 부를 수 있는 주장이나 의견 |
 | family | 가족 | 작성자 본인의 가족(배우자, 아이, 부모) |
 | personal | 개인사 | 작성자 개인의 생활과 심경(이사, 건강, 하루 일과, 기분, 넋두리) |
 | creation | 창작 | 작성자가 직접 이야기, 캐릭터, 세계관, 글, 그림을 만들거나 만드는 법 |
@@ -71,6 +75,7 @@ Worker 설정은 `wrangler.toml`의 공통 기본값, 인스턴스별 바인딩�
 | `OWNER_SERVICE_TOKEN_IDS` | 소유자 Access 서비스 토큰 client ID 쉼표 목록 |
 | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` | Access JWT issuer 도메인과 허용 audience 쉼표 목록 |
 | `SCORE_BATCH` | 주제 재채점 예상 시간 계산에 쓰는 분당 처리량 |
+| `SOURCE_URL` | 화면 하단 소스 링크. 빈 문자열이면 표시하지 않음 |
 | `X_USER_ID` | 수집할 X 계정의 숫자 사용자 ID |
 | `JEV_MONTHLY_USD_CAP` | Worker 채점의 월별 Jev 입력 비용 상한 (USD) |
 
@@ -87,7 +92,13 @@ ACCESS_AUD = "example-audience"
 SCORE_BATCH = "400"
 X_USER_ID = ""
 JEV_MONTHLY_USD_CAP = "5"
+SOURCE_URL = "https://github.com/example/twitter-archive"
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
 ```
+
+`CF_VERSION_METADATA`는 배포 ID를 집계 캐시 키에 넣어 새 Worker 버전에서 오래된 응답을 재사용하지 않도록 합니다.
 
 `.dev.vars`에서 `DEV_OWNER=1`을 설정하면 로컬에서만 소유자 화면을 확인할 수 있습니다. 이 변수를 `wrangler.toml`에 넣지 마세요.
 

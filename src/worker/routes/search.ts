@@ -10,6 +10,7 @@ import { buildJudgeRequest, deriveJudgment, type SearchPeriod, type SearchStrate
 import { rankCandidates, type RankedTweet, type RankQuestion } from "../search/rank.js";
 import type { TweetDbRow } from "../serialize.js";
 import { canViewSearchTopic } from "../visibility.js";
+import { publicHiddenSql } from "../visibility.js";
 import type { AppContext } from "./helpers.js";
 import { invalid, isDate } from "./helpers.js";
 
@@ -102,7 +103,9 @@ route.post("/api/search", async (context: AppContext) => {
 
   const config: JevConfig = { baseUrl: context.env.TYPESAFE_BASE_URL, apiKey: context.env.TYPESAFE_API_KEY };
   const judgeStart = Date.now();
-  const yearRows = await context.env.DB.prepare("SELECT DISTINCT year FROM tweets ORDER BY year")
+  const yearRows = await context.env.DB.prepare(`SELECT DISTINCT t.year FROM tweets t
+    ${viewer.viewingAs === "visitor" ? `WHERE NOT ${publicHiddenSql("t")}` : ""}
+    ORDER BY t.year`)
     .all<{ year: number }>();
   const years = yearRows.results.map((row) => row.year);
   const judgeResult = await callJev(config, buildJudgeRequest(body.q, allowedTopics, years));

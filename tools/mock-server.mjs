@@ -10,8 +10,8 @@ const rows = async name => (await readFile(join(dataDir, name), 'utf8')).split('
 const seed = JSON.parse(await readFile(join(root, 'src/shared/topics.json'), 'utf8'));
 const scores = new Map((await rows('scores-v5.jsonl')).map(row => [String(row.id), row.scores]));
 const topics = seed.topics.map((topic, sort_order) => ({
-  ...topic, timeline_visibility: topic.id === 'politics' ? 'owner' : 'public',
-  search_visibility: topic.id === 'politics' ? 'owner' : 'public',
+  ...topic, timeline_visibility: topic.timeline_visibility || (topic.id === 'politics' ? 'owner' : 'public'),
+  search_visibility: topic.search_visibility || (topic.id === 'politics' ? 'owner' : 'public'), active: 1,
   version: seed.version, sort_order, scored: 0,
 }));
 const tweets = (await rows('sample.jsonl')).map(row => {
@@ -26,7 +26,7 @@ const tweets = (await rows('sample.jsonl')).map(row => {
     quoted: row.quoted ? { id: row.quoted.id || null, text: row.quoted.text || null } : null,
     media: (row.media || []).map(item => ({ type: item.type, url: null, width: item.width || null,
       height: item.height || null, alt: item.alt || null })),
-    topics: visible, x_url: `https://x.com/i/status/${id}`,
+    topics: visible, x_url: `https://x.com/i/status/${id}`, visibility: row.visibility ?? null,
   };
 }).sort((a, b) => a.created_at.localeCompare(b.created_at));
 for (const topic of topics) topic.scored = tweets.length;
@@ -35,17 +35,24 @@ let tags = [
   { id: 'mock-book', label: '읽은 책', kind: 'book', start_date: '2024-03-01', end_date: '2024-03-31', note: null, visibility: 'public' },
 ];
 const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-const minDate = tweets[0]?.date_kst || null;
-const maxDate = tweets.at(-1)?.date_kst || null;
 const pad = n => String(n).padStart(2, '0');
 const dateMs = s => Date.parse(`${s}T00:00:00Z`);
 const isOwner = url => url.searchParams.get('as') !== 'visitor';
+const isPublicHidden = tweet => tweet.visibility === 'private' || (tweet.visibility === null && Object.entries(scores.get(tweet.id) || {}).some(([id, score]) => {
+  const topic = topics.find(item => item.id === id);
+  return topic?.active && topic.public_hide_threshold != null && score >= topic.public_hide_threshold;
+}));
+const viewerTweets = owner => owner ? tweets : tweets.filter(tweet => !isPublicHidden(tweet));
 const visibleTopics = owner => topics.filter(t => owner || t.timeline_visibility === 'public' || t.search_visibility === 'public');
 const visibleTags = owner => tags.filter(t => owner || t.visibility === 'public');
-const visibleTweet = (tweet, owner) => ({ ...tweet, topics: tweet.topics.filter(({ id }) => {
-  const topic = topics.find(t => t.id === id);
-  return topic && (owner ? topic.timeline_visibility !== 'hidden' : topic.timeline_visibility === 'public');
-}) });
+const visibleTweet = (tweet, owner) => {
+  const { visibility, ...rest } = tweet;
+  const value = { ...rest, topics: tweet.topics.filter(({ id }) => {
+    const topic = topics.find(t => t.id === id);
+    return topic && (owner ? topic.timeline_visibility !== 'hidden' : topic.timeline_visibility === 'public');
+  }) };
+  return owner ? { ...value, visibility, public_hidden: isPublicHidden(tweet) } : value;
+};
 const json = (res, value, status = 200) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); };
 const body = async req => { let raw = ''; for await (const chunk of req) raw += chunk; return JSON.parse(raw || '{}'); };
 const counts = (items, owner) => {
@@ -54,7 +61,7 @@ const counts = (items, owner) => {
   return out;
 };
 const estimate = { tweets: tweets.length, est_usd: +(tweets.length * 400 * 0.042 / 1e6).toFixed(4), est_minutes: Math.ceil(tweets.length / 400) };
-const responseTopics = owner => visibleTopics(owner).map(topic => owner ? topic : (({ question, scored, ...rest }) => rest)(topic));
+const responseTopics = owner => visibleTopics(owner).map(topic => owner ? topic : (({ question, scored, public_hide_threshold, ...rest }) => rest)(topic));
 const period = tag => [tag.start_date, tag.end_date || today];
 const inYear = (tag, year) => { const [a, b] = period(tag); return a <= `${year}-12-31` && b >= `${year}-01-01`; };
 const tagDays = tag => Math.round((dateMs(period(tag)[1]) - dateMs(tag.start_date)) / 86400000) + 1;
@@ -73,15 +80,21 @@ createServer(async (req, res) => {
     const owner = isOwner(url);
     const path = url.pathname;
     if (path === '/api/me') return json(res, { owner: true, viewing_as: owner ? 'owner' : 'visitor' });
-    if (path === '/api/meta') return json(res, {
-      site_title: '트윗 아카이브', account_handle: 'archive_account', total_tweets: tweets.length,
-      first_date: minDate, last_date: maxDate, last_collected_at: '2026-09-29T03:00:00Z',
+    if (path === '/api/meta') {
+      const visible = viewerTweets(owner);
+      return json(res, {
+      site_title: '트윗 아카이브', account_handle: 'archive_account', total_tweets: visible.length,
+      first_date: visible[0]?.date_kst || null, last_date: visible.at(-1)?.date_kst || null,
+      source_url: process.env.MOCK_SOURCE_URL === '' ? null : process.env.MOCK_SOURCE_URL || 'https://github.com/eiaserinnys/twitter-archive',
+      last_collected_at: '2026-09-29T03:00:00Z',
       thresholds: { display: 0.7, search: 0.5 }, topics: responseTopics(owner),
-      ...(owner ? { rescore_estimate: estimate } : {}),
-    });
+      ...(owner ? { public_hidden_count: tweets.filter(isPublicHidden).length, rescore_estimate: estimate } : {}),
+      });
+    }
     if (path === '/api/timeline') {
-      const years = [...new Set(tweets.map(t => +t.date_kst.slice(0, 4)))].sort((a, b) => a - b)
-        .map(year => { const list = tweets.filter(t => t.date_kst.startsWith(`${year}-`)); return { year, total: list.length, counts: counts(list, owner) }; });
+      const currentTweets = viewerTweets(owner);
+      const years = [...new Set(currentTweets.map(t => +t.date_kst.slice(0, 4)))].sort((a, b) => a - b)
+        .map(year => { const list = currentTweets.filter(t => t.date_kst.startsWith(`${year}-`)); return { year, total: list.length, counts: counts(list, owner) }; });
       const shown = visibleTags(owner);
       const long = shown.filter(t => tagDays(t) >= 365);
       const short_counts = Object.fromEntries(years.map(({ year }) => [year, shown.filter(t => tagDays(t) < 365 && inYear(t, year)).length]));
@@ -90,16 +103,18 @@ createServer(async (req, res) => {
     const yearMatch = path.match(/^\/api\/timeline\/(\d{4})$/);
     if (yearMatch) {
       const year = +yearMatch[1];
+      const currentTweets = viewerTweets(owner);
       const months = Array.from({ length: 12 }, (_, index) => {
         const month = index + 1;
-        const list = tweets.filter(t => t.date_kst.startsWith(`${year}-${pad(month)}-`));
+        const list = currentTweets.filter(t => t.date_kst.startsWith(`${year}-${pad(month)}-`));
         return { month, total: list.length, counts: counts(list, owner) };
       });
       return json(res, { year, months, tags: visibleTags(owner).filter(t => inYear(t, year)) });
     }
     if (path === '/api/tweets') {
-      let list = tweets.slice();
+      let list = viewerTweets(owner);
       const q = url.searchParams;
+      if (owner && q.get('public_hidden') === '1') list = list.filter(isPublicHidden);
       if (q.has('year')) list = list.filter(t => t.date_kst.startsWith(`${q.get('year')}-`));
       if (q.has('month')) list = list.filter(t => +t.date_kst.slice(5, 7) === +q.get('month'));
       if (q.has('date')) list = list.filter(t => t.date_kst === q.get('date'));
@@ -119,22 +134,35 @@ createServer(async (req, res) => {
       list = list.slice(start, start + limit).map(t => visibleTweet(t, owner));
       return json(res, { tweets: list, next_cursor: start + limit < total ? String(start + limit) : null, total });
     }
+    const tweetMatch = path.match(/^\/api\/tweets\/([^/]+)$/);
+    if (tweetMatch && req.method === 'PATCH') {
+      if (!owner) return json(res, { error: 'owner_only' }, 403);
+      const tweet = tweets.find(item => item.id === tweetMatch[1]);
+      if (!tweet) return json(res, { error: 'not_found' }, 404);
+      const input = await body(req);
+      if (!(input.visibility === null || input.visibility === 'private' || input.visibility === 'public'))
+        return json(res, { error: 'invalid', message: 'Tweet visibility is invalid.' }, 400);
+      tweet.visibility = input.visibility;
+      return json(res, { visibility: tweet.visibility, public_hidden: isPublicHidden(tweet) });
+    }
     if (path === '/api/on-this-day') {
       const md = url.searchParams.get('md');
-      const years = [...new Set(tweets.map(t => +t.date_kst.slice(0, 4)))].sort((a, b) => b - a).map(year => {
-        const dates = [...new Set(tweets.filter(t => t.date_kst.startsWith(`${year}-`)).map(t => t.date_kst))];
+      const currentTweets = viewerTweets(owner);
+      const years = [...new Set(currentTweets.map(t => +t.date_kst.slice(0, 4)))].sort((a, b) => b - a).map(year => {
+        const dates = [...new Set(currentTweets.filter(t => t.date_kst.startsWith(`${year}-`)).map(t => t.date_kst))];
         const target = `${year}-${md}`;
         const date = dates.sort((a, b) => Math.abs(dateMs(a) - dateMs(target)) - Math.abs(dateMs(b) - dateMs(target)) || a.localeCompare(b))[0];
-        const list = tweets.filter(t => t.date_kst === date);
+        const list = currentTweets.filter(t => t.date_kst === date);
         return { year, date, distance_days: Math.abs(Math.round((dateMs(date) - dateMs(target)) / 86400000)), total: list.length, tweets: list.slice(0, 3).map(t => visibleTweet(t, owner)) };
       });
       return json(res, { md, years });
     }
     if (path === '/api/calendar') {
       const year = +url.searchParams.get('year'), month = +url.searchParams.get('month');
-      const dates = [...new Set(tweets.filter(t => t.date_kst.startsWith(`${year}-${pad(month)}-`)).map(t => t.date_kst))];
+      const currentTweets = viewerTweets(owner);
+      const dates = [...new Set(currentTweets.filter(t => t.date_kst.startsWith(`${year}-${pad(month)}-`)).map(t => t.date_kst))];
       const days = dates.map(date => {
-        const list = tweets.filter(t => t.date_kst === date);
+        const list = currentTweets.filter(t => t.date_kst === date);
         const scores = {};
         for (const tweet of list) for (const topic of visibleTweet(tweet, owner).topics) scores[topic.id] = (scores[topic.id] || 0) + topic.score;
         const top_topic = Object.entries(scores).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
@@ -147,6 +175,8 @@ createServer(async (req, res) => {
     if (req.method !== 'GET' && !owner) return json(res, { error: 'owner_only' }, 403);
     if (path === '/api/topics' && req.method === 'POST') {
       const input = await body(req);
+      if (input.public_hide_threshold !== undefined && !(input.public_hide_threshold === null || (typeof input.public_hide_threshold === 'number' && input.public_hide_threshold >= 0 && input.public_hide_threshold <= 1)))
+        return json(res, { error: 'invalid', message: 'Topic fields are invalid.' }, 400);
       const topic = { ...input, id: `t_${Math.random().toString(36).slice(2, 10)}`, version: String(Date.now()), sort_order: topics.length, scored: 0 };
       topics.push(topic); return json(res, { topic, rescore_estimate: estimate });
     }
@@ -156,7 +186,10 @@ createServer(async (req, res) => {
       if (!topic) return json(res, { error: 'not_found' }, 404);
       if (req.method === 'DELETE') { topics.splice(topics.indexOf(topic), 1); return json(res, { ok: true }); }
       if (req.method === 'PATCH') {
-        const input = await body(req); const rescored = input.question !== undefined && input.question !== topic.question;
+        const input = await body(req);
+        if (input.public_hide_threshold !== undefined && !(input.public_hide_threshold === null || (typeof input.public_hide_threshold === 'number' && input.public_hide_threshold >= 0 && input.public_hide_threshold <= 1)))
+          return json(res, { error: 'invalid', message: 'Topic fields are invalid.' }, 400);
+        const rescored = input.question !== undefined && input.question !== topic.question;
         Object.assign(topic, input);
         if (rescored) { topic.version = String(Date.now()); topic.scored = 0; }
         return json(res, { topic, rescored, rescore_estimate: estimate });

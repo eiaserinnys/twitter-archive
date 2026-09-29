@@ -9,6 +9,7 @@ export interface TopicRow extends TopicVisibilityRow {
   sort_order: number;
   timeline_visibility: Visibility;
   search_visibility: Visibility;
+  public_hide_threshold: number | null;
 }
 
 export interface TopicInfo {
@@ -17,6 +18,7 @@ export interface TopicInfo {
   question?: string;
   timeline_visibility: Visibility;
   search_visibility: Visibility;
+  public_hide_threshold?: number | null;
   version: string;
   sort_order: number;
   scored?: number;
@@ -24,7 +26,7 @@ export interface TopicInfo {
 
 export async function getTopicInfo(db: D1Database, id: string): Promise<TopicInfo | null> {
   const topic = await db.prepare(`
-    SELECT tp.id, tp.label, tp.question, tp.timeline_visibility, tp.search_visibility,
+    SELECT tp.id, tp.label, tp.question, tp.timeline_visibility, tp.search_visibility, tp.public_hide_threshold,
       tp.version, tp.sort_order, tp.active,
       (SELECT COUNT(*) FROM scores s WHERE s.topic = tp.id AND s.version = tp.version) AS scored
     FROM topics tp
@@ -37,6 +39,7 @@ export async function getTopicInfo(db: D1Database, id: string): Promise<TopicInf
     question: topic.question,
     timeline_visibility: topic.timeline_visibility,
     search_visibility: topic.search_visibility,
+    public_hide_threshold: topic.public_hide_threshold,
     version: topic.version,
     sort_order: topic.sort_order,
     scored: topic.scored,
@@ -45,7 +48,7 @@ export async function getTopicInfo(db: D1Database, id: string): Promise<TopicInf
 
 export async function listTopicRows(db: D1Database): Promise<TopicRow[]> {
   const result = await db.prepare(`
-    SELECT id, label, question, timeline_visibility, search_visibility, version, sort_order, active
+    SELECT id, label, question, timeline_visibility, search_visibility, public_hide_threshold, version, sort_order, active
     FROM topics
     ORDER BY sort_order, id
   `).all<TopicRow>();
@@ -54,7 +57,7 @@ export async function listTopicRows(db: D1Database): Promise<TopicRow[]> {
 
 export async function listTopicInfo(db: D1Database, viewer: Viewer): Promise<TopicInfo[]> {
   const result = await db.prepare(`
-    SELECT tp.id, tp.label, tp.question, tp.timeline_visibility, tp.search_visibility,
+    SELECT tp.id, tp.label, tp.question, tp.timeline_visibility, tp.search_visibility, tp.public_hide_threshold,
       tp.version, tp.sort_order, tp.active,
       (SELECT COUNT(*) FROM scores s WHERE s.topic = tp.id AND s.version = tp.version) AS scored
     FROM topics tp
@@ -72,12 +75,13 @@ export async function listTopicInfo(db: D1Database, viewer: Viewer): Promise<Top
       version: topic.version,
       sort_order: topic.sort_order,
       ...(viewer.viewingAs === "owner" ? { scored: topic.scored } : {}),
+      ...(viewer.viewingAs === "owner" ? { public_hide_threshold: topic.public_hide_threshold } : {}),
     }));
 }
 
 export async function getTopic(db: D1Database, id: string): Promise<TopicRow | null> {
   return db.prepare(`
-    SELECT id, label, question, timeline_visibility, search_visibility, version, sort_order, active
+    SELECT id, label, question, timeline_visibility, search_visibility, public_hide_threshold, version, sort_order, active
     FROM topics WHERE id = ?
   `).bind(id).first<TopicRow>();
 }

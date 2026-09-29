@@ -3,7 +3,7 @@ import type { Viewer } from "../auth.js";
 import type { D1Database } from "../env.js";
 import { decodeCursor, encodeCursor, type TweetCursor } from "../cursor.js";
 import { queryIdChunks } from "./chunked.js";
-import { selectTweetTopicChips, type TopicScoreRow } from "../visibility.js";
+import { publicHiddenSql, selectTweetTopicChips, type TopicScoreRow } from "../visibility.js";
 import { serializeTweet, type MediaDbRow, type TweetDbRow, type TweetOut } from "../serialize.js";
 
 export interface TweetFilters {
@@ -15,6 +15,7 @@ export interface TweetFilters {
   topics?: string[];
   kinds?: string[];
   q?: string;
+  public_hidden?: boolean;
   order: "asc" | "desc";
   limit: number;
   cursor?: TweetCursor;
@@ -35,6 +36,8 @@ function visibleTopicClause(viewer: Viewer): string {
 function filterWhere(filters: TweetFilters, viewer: Viewer): { sql: string; values: unknown[] } {
   const clauses = ["1 = 1"];
   const values: unknown[] = [];
+  if (viewer.viewingAs === "visitor") clauses.push(`NOT ${publicHiddenSql("t")}`);
+  else if (filters.public_hidden) clauses.push(publicHiddenSql("t"));
   if (filters.year !== undefined) {
     clauses.push("t.year = ?");
     values.push(filters.year);
@@ -120,11 +123,16 @@ export async function serializeTweetRows(
     items.push(row);
     topicsByTweet.set(row.tweet_id, items);
   }
-  return rows.map((row) => serializeTweet(
-    row,
-    mediaByTweet.get(row.id) ?? [],
-    selectTweetTopicChips(topicsByTweet.get(row.id) ?? [], viewer, TOPIC_SEED.display_threshold),
-  ));
+  return rows.map((row) => {
+    const tweet = serializeTweet(
+      row,
+      mediaByTweet.get(row.id) ?? [],
+      selectTweetTopicChips(topicsByTweet.get(row.id) ?? [], viewer, TOPIC_SEED.display_threshold),
+    );
+    return viewer.viewingAs === "owner"
+      ? { ...tweet, visibility: row.visibility ?? null, public_hidden: Boolean(row.public_hidden) }
+      : tweet;
+  });
 }
 
 export async function queryTweets(
@@ -144,7 +152,8 @@ export async function queryTweets(
   }
   const result = await db.prepare(`
     SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.parent_id, t.parent_text,
-      t.parent_author, t.quoted_id, t.quoted_text
+      t.parent_author, t.quoted_id, t.quoted_text${viewer.viewingAs === "owner" ? `,
+      t.visibility, CASE WHEN ${publicHiddenSql("t")} THEN 1 ELSE 0 END AS public_hidden` : ""}
     FROM tweets t
     WHERE ${pageClauses.join(" AND ")}
     ORDER BY t.created_at ${filters.order.toUpperCase()}, t.id ${filters.order.toUpperCase()}
@@ -169,19 +178,25 @@ export interface OnThisDayTweetRow extends TweetDbRow {
 export async function getOnThisDayTweets(
   db: D1Database,
   dates: string[],
+  viewer: Viewer,
 ): Promise<OnThisDayTweetRow[]> {
   if (dates.length === 0) return [];
   const placeholders = dates.map(() => "?").join(", ");
+  const ownerColumns = viewer.viewingAs === "owner" ? ", visibility, public_hidden" : "";
+  const ownerSource = viewer.viewingAs === "owner"
+    ? `t.visibility, CASE WHEN ${publicHiddenSql("t")} THEN 1 ELSE 0 END AS public_hidden,`
+    : "";
   const result = await db.prepare(`
     SELECT id, created_at, date_kst, kind, text, parent_id, parent_text, parent_author,
-      quoted_id, quoted_text, day_total
+      quoted_id, quoted_text, day_total${ownerColumns}
     FROM (
       SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.parent_id, t.parent_text,
         t.parent_author, t.quoted_id, t.quoted_text,
+        ${ownerSource}
         COUNT(*) OVER (PARTITION BY t.date_kst) AS day_total,
         ROW_NUMBER() OVER (PARTITION BY t.date_kst ORDER BY t.created_at, t.id) AS position
       FROM tweets t
-      WHERE t.date_kst IN (${placeholders})
+      WHERE t.date_kst IN (${placeholders})${viewer.viewingAs === "visitor" ? ` AND NOT ${publicHiddenSql("t")}` : ""}
     )
     WHERE position <= 3
     ORDER BY date_kst, created_at, id

@@ -1,5 +1,15 @@
 import type { Viewer } from "./auth.js";
 
+export function publicHiddenSql(alias: string): string {
+  return `(COALESCE(${alias}.visibility = 'private', 0) OR (${alias}.visibility IS NULL AND EXISTS (
+    SELECT 1 FROM scores s
+    JOIN topics tp ON tp.id = s.topic
+    WHERE s.tweet_id = ${alias}.id AND tp.active = 1
+      AND tp.public_hide_threshold IS NOT NULL
+      AND s.score >= tp.public_hide_threshold
+  )))`;
+}
+
 export type Visibility = "public" | "owner" | "hidden";
 export type TagVisibility = "public" | "owner";
 

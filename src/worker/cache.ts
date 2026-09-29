@@ -9,12 +9,13 @@ function defaultCache(): WorkerCache {
   return (globalThis as unknown as { caches: { default: WorkerCache } }).caches.default;
 }
 
-function cacheKey(request: Request, version: string, viewingAs: ViewingAs, date?: string): Request {
+function cacheKey(request: Request, version: string, viewingAs: ViewingAs, date?: string, cacheVersion?: string): Request {
   const url = new URL(request.url);
   url.search = "";
   url.searchParams.set("v", version);
   url.searchParams.set("as", viewingAs);
   if (date !== undefined) url.searchParams.set("d", date);
+  if (cacheVersion !== undefined) url.searchParams.set("cv", cacheVersion);
   return new Request(url);
 }
 
@@ -24,11 +25,12 @@ export async function getOrCacheJson<T>(
   viewingAs: ViewingAs,
   calculate: () => Promise<T>,
   date?: string,
+  cacheVersion?: string,
 ): Promise<T> {
   if (dataVersion === null) return calculate();
 
   const cache = defaultCache();
-  const key = cacheKey(request, dataVersion, viewingAs, date);
+  const key = cacheKey(request, dataVersion, viewingAs, date, cacheVersion);
   const cached = await cache.match(key);
   if (cached) return await cached.json() as T;
 

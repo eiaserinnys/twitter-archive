@@ -6,12 +6,32 @@ import { getDatesForOnThisDay } from "../db/timeline.js";
 import type { Env } from "../env.js";
 import { serializeTweetRows } from "../db/tweets.js";
 import { listTopicRows } from "../db/topics.js";
-import { isTopicFilterAllowed } from "../visibility.js";
+import { bumpDataVersion } from "../db/meta.js";
+import { publicHiddenSql, isTopicFilterAllowed } from "../visibility.js";
 import type { AppContext } from "./helpers.js";
-import { invalid, isDate } from "./helpers.js";
+import { invalid, isDate, ownerJsonBody } from "./helpers.js";
 
 const route = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
 const tweetKinds = ["original", "reply", "self_reply", "quote"];
+
+route.patch("/api/tweets/:id", async (context: AppContext) => {
+  const parsed = await ownerJsonBody(context);
+  if ("response" in parsed) return parsed.response;
+  const id = context.req.param("id") ?? "";
+  const current = await context.env.DB.prepare("SELECT id FROM tweets WHERE id = ?").bind(id).first<{ id: string }>();
+  if (!current) return context.json({ error: "not_found" }, 404);
+  const visibility = parsed.body.visibility;
+  if (!(visibility === null || visibility === "private" || visibility === "public")) {
+    return invalid(context, "Tweet visibility is invalid.");
+  }
+  await context.env.DB.prepare("UPDATE tweets SET visibility = ? WHERE id = ?").bind(visibility, id).run();
+  await bumpDataVersion(context.env.DB);
+  const hidden = await context.env.DB.prepare(`
+    SELECT CASE WHEN ${publicHiddenSql("t")} THEN 1 ELSE 0 END AS public_hidden
+    FROM tweets t WHERE t.id = ?
+  `).bind(id).first<{ public_hidden: number }>();
+  return context.json({ visibility, public_hidden: Boolean(hidden?.public_hidden) });
+});
 
 function parseInteger(value: string | undefined): number | undefined {
   if (value === undefined || !/^\d+$/.test(value)) return undefined;
@@ -61,6 +81,7 @@ route.get("/api/tweets", async (context: AppContext) => {
     topics,
     kinds,
     q: params.q,
+    public_hidden: context.get("viewer").viewingAs === "owner" && params.public_hidden === "1",
     order: params.order === "desc" ? "desc" : "asc",
     limit,
     cursor,
@@ -72,7 +93,8 @@ route.get("/api/on-this-day", async (context: AppContext) => {
   if (!md || !/^\d{2}-\d{2}$/.test(md) || !isDate(`2000-${md}`)) {
     return invalid(context, "md must use MM-DD format.");
   }
-  const dates = await getDatesForOnThisDay(context.env.DB);
+  const viewer = context.get("viewer");
+  const dates = await getDatesForOnThisDay(context.env.DB, viewer);
   const [month, day] = md.split("-").map(Number);
   const closestByYear = new Map<number, { date: string; distance_days: number }>();
   for (const candidate of dates) {
@@ -87,8 +109,8 @@ route.get("/api/on-this-day", async (context: AppContext) => {
   const selected = [...closestByYear.entries()]
     .sort(([left], [right]) => right - left)
     .map(([year, value]) => ({ year, ...value }));
-  const rows = await getOnThisDayTweets(context.env.DB, selected.map((entry) => entry.date));
-  const serialized = await serializeTweetRows(context.env.DB, rows, context.get("viewer"));
+  const rows = await getOnThisDayTweets(context.env.DB, selected.map((entry) => entry.date), viewer);
+  const serialized = await serializeTweetRows(context.env.DB, rows, viewer);
   const tweetsByDate = new Map<string, typeof serialized>();
   rows.forEach((row, index) => {
     const items = tweetsByDate.get(row.date_kst) ?? [];

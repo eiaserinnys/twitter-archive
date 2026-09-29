@@ -64,6 +64,9 @@ function paintHeader() {
   $('setBtn').hidden = !context.owner || context.preview;
   $('ownerLinkWrap').hidden = context.owner && !context.preview;
   $('visSwitch').setAttribute('aria-checked', String(context.preview));
+  const sourceLink = $('sourceLink');
+  sourceLink.hidden = !meta.source_url;
+  if (meta.source_url) sourceLink.href = meta.source_url;
 }
 
 async function loadData() {
@@ -108,6 +111,10 @@ async function renderRoute() {
   if (path === '/today') { showTab('today'); await today.showToday(); return; }
   if (/^\/day\/\d{4}-\d{2}-\d{2}$/.test(path)) {
     showTab('today'); await today.goDate(path.split('/')[2], false); return;
+  }
+  if (path === '/' && new URLSearchParams(location.search).get('public_hidden') === '1'
+    && context.owner && !context.preview) {
+    showTab('timeline'); timeline.closeYear(false); timeline.openPublicHidden(false); return;
   }
   showTab('timeline'); timeline.closeYear(false);
 }
