@@ -13,7 +13,8 @@ export async function handleScheduled(
     const collected = tweetIds.length === 0
       ? { scored: 0, stoppedForBudget: false }
       : await scoreCollectedTweets(env, tweetIds);
-    console.log(`Collected ${tweetIds.length} new tweets; retried ${retried.scored}; scored ${collected.scored} new tweets.`);
+    const stoppedForBudget = retried.stoppedForBudget || collected.stoppedForBudget;
+    console.log(`Collected ${tweetIds.length} new tweets; retried ${retried.scored}; scored ${collected.scored} new tweets${stoppedForBudget ? "; stopped at monthly cap" : ""}.`);
     return;
   }
   if (event.cron === "* * * * *") {
