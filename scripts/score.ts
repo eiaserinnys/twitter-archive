@@ -1,9 +1,10 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { TOPIC_SEED } from "../src/shared/topics.js";
+import { TOPIC_SEED, type TopicSeedConfig } from "../src/shared/topics.js";
 import { readJsonl, writeJsonl } from "../src/shared/jsonl.js";
 import type { NormalizedTweet } from "../src/shared/types.js";
 import { isDirectExecution, parseCliArgs, reportCliError } from "./lib/cli.js";
+import { readTopicSeed } from "./lib/topics.js";
 
 export interface JevPayload {
   state: string;
@@ -18,6 +19,7 @@ export interface ScoreOptions {
   baseUrl: string;
   apiKey: string;
   limit?: number;
+  topics?: TopicSeedConfig;
   fetchImpl?: typeof fetch;
 }
 
@@ -56,8 +58,8 @@ export function buildState(tweet: NormalizedTweet): string {
   return lines.join("\n");
 }
 
-export function buildPayload(tweet: NormalizedTweet): JevPayload {
-  const questions = Object.fromEntries(TOPIC_SEED.topics.map((topic) => [topic.id, {
+export function buildPayload(tweet: NormalizedTweet, topicSeed: TopicSeedConfig = TOPIC_SEED): JevPayload {
+  const questions = Object.fromEntries(topicSeed.topics.map((topic) => [topic.id, {
     type: "noul" as const,
     instructions: `이 트윗은 ${topic.question}에 관한 이야기인가?`,
     criteria: { true: "그렇다", false: "아니다" },
@@ -70,13 +72,13 @@ function estimateInputTokens(payload: JevPayload): number {
   return Math.max(2048, Math.ceil(byteLength * 0.6 + 2048));
 }
 
-function parseResponse(body: unknown): { scores: Record<string, number>; inputTokens: number } {
+function parseResponse(body: unknown, topicSeed: TopicSeedConfig = TOPIC_SEED): { scores: Record<string, number>; inputTokens: number } {
   if (!body || typeof body !== "object" || !("answers" in body) || !body.answers || typeof body.answers !== "object") {
     throw new Error("Jev response has no answers object.");
   }
   const answers = body.answers as Record<string, unknown>;
   const scores: Record<string, number> = {};
-  for (const topic of TOPIC_SEED.topics) {
+  for (const topic of topicSeed.topics) {
     const answer = answers[topic.id];
     const value = answer && typeof answer === "object" && "noul" in answer ? answer.noul : undefined;
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
@@ -102,10 +104,11 @@ async function existingScores(path: string): Promise<Array<{ id: string; version
 }
 
 export async function runScore(options: ScoreOptions): Promise<ScoreResult> {
+  const topicSeed = options.topics ?? TOPIC_SEED;
   const tweets = await readJsonl<NormalizedTweet>(resolve(options.dataDir, "tweets.jsonl"));
   const scoresPath = resolve(options.dataDir, "scores.jsonl");
   const previous = await existingScores(scoresPath);
-  const scoredVersion = new Map(previous.filter((row) => row.version === TOPIC_SEED.version).map((row) => [row.id, row.version]));
+  const scoredVersion = new Map(previous.filter((row) => row.version === topicSeed.version).map((row) => [row.id, row.version]));
   const candidates = tweets.filter((tweet) => !scoredVersion.has(tweet.id)).slice(0, options.limit);
   if (options.dryRun) {
     const rows = candidates.map((tweet) => ({ id: tweet.id, state: buildState(tweet) }));
@@ -123,7 +126,7 @@ export async function runScore(options: ScoreOptions): Promise<ScoreResult> {
   const worker = async (): Promise<void> => {
     while (nextIndex < candidates.length) {
       const tweet = candidates[nextIndex];
-      const payload = buildPayload(tweet);
+      const payload = buildPayload(tweet, topicSeed);
       const estimatedCostUsd = estimateInputTokens(payload) * INPUT_PRICE_PER_MILLION / 1_000_000;
       const spentUsd = spentTokens * INPUT_PRICE_PER_MILLION / 1_000_000;
       if (spentUsd + reservedCostUsd + estimatedCostUsd > options.maxUsd) {
@@ -140,10 +143,10 @@ export async function runScore(options: ScoreOptions): Promise<ScoreResult> {
           signal: AbortSignal.timeout(60_000),
         });
         if (!response.ok) throw new Error(`Jev HTTP ${response.status} while scoring a tweet.`);
-        const result = parseResponse(await response.json());
+        const result = parseResponse(await response.json(), topicSeed);
         spentTokens += result.inputTokens;
         scored += 1;
-        await appendFile(scoresPath, `${JSON.stringify({ id: tweet.id, scores: result.scores, version: TOPIC_SEED.version, input_tokens: result.inputTokens })}\n`);
+        await appendFile(scoresPath, `${JSON.stringify({ id: tweet.id, scores: result.scores, version: topicSeed.version, input_tokens: result.inputTokens })}\n`);
       } finally {
         reservedCostUsd -= estimatedCostUsd;
       }
@@ -158,9 +161,11 @@ async function main(): Promise<void> {
     "data-dir": { type: "string" },
     "max-usd": { type: "string" },
     limit: { type: "string" },
+    topics: { type: "string" },
     "dry-run": { type: "boolean" },
   });
   const dryRun = Boolean(args["dry-run"]);
+  const topics = await readTopicSeed(typeof args.topics === "string" ? args.topics : undefined);
   const baseUrl = process.env.TYPESAFE_BASE_URL;
   const apiKey = process.env.TYPESAFE_API_KEY;
   if (!dryRun && !baseUrl) throw new Error("TYPESAFE_BASE_URL is required.");
@@ -172,6 +177,7 @@ async function main(): Promise<void> {
     dryRun,
     baseUrl: baseUrl ?? "",
     apiKey: apiKey ?? "",
+    topics,
   });
   if (result.dryRunStates > 0) console.log(`Built ${result.dryRunStates} scoring states; no Jev requests were sent.`);
   else console.log(`Scored ${result.scored} tweets${result.stoppedForBudget ? "; stopped at budget" : ""}.`);

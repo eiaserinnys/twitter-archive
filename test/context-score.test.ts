@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runFetchContext } from "../scripts/fetch-context.js";
 import { buildPayload, buildState, runScore } from "../scripts/score.js";
+import { buildSql } from "../scripts/load-d1.js";
+import { readTopicSeed } from "../scripts/lib/topics.js";
 import type { NormalizedTweet } from "../src/shared/types.js";
 
 const row: NormalizedTweet = {
@@ -46,6 +48,33 @@ describe("scoring input", () => {
       criteria: { true: "그렇다", false: "아니다" },
     });
     expect(Object.keys(payload.questions)).toHaveLength(13);
+  });
+
+  it("uses an instance topic file for scoring and D1 seed SQL", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "twitter-archive-topics-"));
+    temporaryDirectories.push(directory);
+    const topicsPath = join(directory, "topics.json");
+    const topicSeed = {
+      description: "Synthetic instance topics",
+      version: "instance-v1",
+      display_threshold: 0.7,
+      search_threshold: 0.5,
+      topics: [{ id: "custom", label: "Custom", question: "A synthetic topic" }],
+    };
+    await writeFile(topicsPath, JSON.stringify(topicSeed));
+    const loadedSeed = await readTopicSeed(topicsPath);
+    const payload = buildPayload(row, loadedSeed);
+    expect(Object.keys(payload.questions)).toEqual(["custom"]);
+
+    const sql = buildSql([row], [{
+      id: row.id,
+      scores: { custom: 0.8 },
+      version: "instance-v1",
+      input_tokens: 12,
+    }], loadedSeed);
+    expect(sql).toContain("'custom'");
+    expect(sql).toContain("'instance-v1'");
+    expect(sql).not.toContain("'politics'");
   });
 });
 
