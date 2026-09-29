@@ -6,8 +6,9 @@ import { serializeTweetRows } from "../db/tweets.js";
 import { listTopicRows } from "../db/topics.js";
 import type { Env } from "../env.js";
 import { findCandidates } from "../search/candidates.js";
-import { buildJudgeRequest, deriveJudgment, type SearchPeriod } from "../search/judge.js";
-import { rankCandidates } from "../search/rank.js";
+import { buildJudgeRequest, deriveJudgment, type SearchPeriod, type SearchStrategyId } from "../search/judge.js";
+import { rankCandidates, type RankedTweet, type RankQuestion } from "../search/rank.js";
+import type { TweetDbRow } from "../serialize.js";
 import { canViewSearchTopic } from "../visibility.js";
 import type { AppContext } from "./helpers.js";
 import { invalid, isDate } from "./helpers.js";
@@ -53,14 +54,33 @@ async function reserveVisitorSearch(db: Env["DB"], limit: number): Promise<boole
   return updated.meta.changes === 1;
 }
 
-function reason(topics: Array<{ id: string; score: number }>, labels: Map<string, string>, period: SearchPeriod | null): string {
-  const parts = topics.slice(0, 2).map(({ id }) => labels.get(id) ?? id);
+function reason(strategies: SearchStrategyId[], topics: Array<{ id: string; score: number }>, labels: Map<string, string>, period: SearchPeriod | null): string {
+  const strategyLabels: Record<SearchStrategyId, string> = { period: "기간", topics: "주제 좌표", words: "낱말" };
+  const parts = [...strategies.map((id) => strategyLabels[id]), ...topics.slice(0, 2).map(({ id }) => labels.get(id) ?? id)];
   if (period) {
     const fromYear = period.from.slice(0, 4);
     const toYear = period.to.slice(0, 4);
     parts.push(fromYear === toYear ? fromYear : `${fromYear}~${toYear}`);
   }
   return parts.join(", ") || "본문 일치";
+}
+
+async function rankRound(config: JevConfig, q: string, rows: TweetDbRow[], intent: "one" | "many"): Promise<{
+  results: RankedTweet[]; question: RankQuestion; primaryMs: number; fallbackMs: number | null;
+}> {
+  const primaryQuestion = intent === "many" ? "matches" : "exact";
+  const primaryStart = Date.now();
+  const primary = await rankCandidates(config, q, rows, primaryQuestion);
+  const primaryMs = Date.now() - primaryStart;
+  const limit = intent === "many" ? 60 : 30;
+  const matches = primary.filter((item) => item.score >= 0.5).slice(0, limit);
+  if (intent === "many" || matches.length > 0) return { results: matches, question: primaryQuestion, primaryMs, fallbackMs: null };
+  const fallbackStart = Date.now();
+  const related = await rankCandidates(config, q, primary.slice(0, 120).map((item) => item.row), "related");
+  return {
+    results: related.filter((item) => item.score >= 0.5).slice(0, 30),
+    question: "related", primaryMs, fallbackMs: Date.now() - fallbackStart,
+  };
 }
 
 route.post("/api/search", async (context: AppContext) => {
@@ -90,31 +110,50 @@ route.post("/api/search", async (context: AppContext) => {
   const judgeMs = Date.now() - judgeStart;
 
   const candidateStart = Date.now();
-  const from = body.from ?? judged.period?.from;
-  const to = body.to ?? judged.period?.to;
-  const candidates = await findCandidates(context.env.DB, viewer, {
-    q: body.q, judgedTopics: judged.topics.map((topic) => topic.id),
-    topics: body.topics, kinds: body.kinds, from, to,
-  });
+  const selected = judged.strategies.filter((strategy) => strategy.selected).map((strategy) => strategy.id);
+  const unused = judged.strategies.filter((strategy) => !strategy.selected).map((strategy) => strategy.id);
+  const candidateFilters = { q: body.q, topicCoordinates: judged.topicCoordinates, period: judged.period,
+    topics: body.topics, kinds: body.kinds, from: body.from, to: body.to };
+  const candidates = await findCandidates(context.env.DB, viewer, { ...candidateFilters, strategies: selected });
   const candidateMs = Date.now() - candidateStart;
 
-  const rankStart = Date.now();
-  const ranked = await rankCandidates(config, body.q, candidates);
-  const tweets = await serializeTweetRows(context.env.DB, ranked.map((item) => item.row), viewer);
+  let round = await rankRound(config, body.q, candidates, judged.intent);
+  const stages = [
+    { name: "judge", ms: judgeMs },
+    { name: "candidates", ms: candidateMs },
+    { name: "rank", ms: round.primaryMs },
+  ];
+  if (round.fallbackMs !== null) stages.push({ name: "fallback", ms: round.fallbackMs });
+  let resultStrategies = selected;
+  let candidateCount = candidates.length;
+  let rounds = 1;
+  if (round.results.length === 0 && unused.length > 0) {
+    rounds = 2;
+    const round2Start = Date.now();
+    const nextCandidates = await findCandidates(context.env.DB, viewer, {
+      ...candidateFilters, strategies: unused, excludeIds: candidates.map((row) => row.id),
+    });
+    candidateCount += nextCandidates.length;
+    round = await rankRound(config, body.q, nextCandidates, judged.intent);
+    stages.push({ name: "round2", ms: Date.now() - round2Start });
+    resultStrategies = unused;
+  }
+  const tweets = await serializeTweetRows(context.env.DB, round.results.map((item) => item.row), viewer);
   const labels = new Map(topicRows.map((topic) => [topic.id, topic.label]));
-  const why = reason(judged.topics, labels, body.from && body.to ? { from: body.from, to: body.to } : judged.period);
-  const results = ranked.map((item, index) => ({ tweet: tweets[index], score: item.score, why }));
-  const rankMs = Date.now() - rankStart;
+  const why = reason(resultStrategies, judged.topics, labels,
+    body.from && body.to ? { from: body.from, to: body.to } : judged.period);
+  const results = round.results.map((item, index) => ({ tweet: tweets[index], score: item.score, why }));
   return context.json({
     q: body.q,
-    judged,
-    candidates: candidates.length,
+    judged: { topics: judged.topics, period: judged.period },
+    candidates: candidateCount,
     results,
-    stages: [
-      { name: "judge", ms: judgeMs },
-      { name: "candidates", ms: candidateMs },
-      { name: "rank", ms: rankMs },
-    ],
+    stages,
+    intent: judged.intent,
+    strategies: judged.strategies,
+    rank_question: round.question,
+    fallback: round.question === "related",
+    rounds,
   });
 });
 
