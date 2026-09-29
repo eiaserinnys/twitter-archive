@@ -4,6 +4,7 @@ import { getTopic, getTopicInfo, listTopicRows, type TopicInfo } from "../db/top
 import type { Env } from "../env.js";
 import type { Viewer } from "../auth.js";
 import { randomId } from "../ids.js";
+import { bumpDataVersion, dataVersionStatement } from "../db/meta.js";
 import type { AppContext } from "./helpers.js";
 import { invalid, isVisibility, ownerJsonBody, ownerOnly } from "./helpers.js";
 
@@ -56,7 +57,8 @@ route.post("/api/topics", async (context: AppContext) => {
       timeline_visibility, search_visibility)
     VALUES (?, ?, ?, ?, ?, 1, ?, ?)
   `).bind(id, body.label, body.question, version, sortOrder,
-    body.timeline_visibility, body.search_visibility), rescoreStatement(context, id, version)]);
+    body.timeline_visibility, body.search_visibility), rescoreStatement(context, id, version),
+  dataVersionStatement(context.env.DB)]);
   const [topic, stats] = await Promise.all([
     ownerTopicInfo(context, id),
     getTweetStats(context.env.DB),
@@ -95,9 +97,10 @@ route.patch("/api/topics/:id", async (context: AppContext) => {
       .bind(...values, current.id);
     if (questionChanged) {
       const version = String(values[updates.findIndex(([key]) => key === "version")]);
-      await runBatch(context, [update, rescoreStatement(context, current.id, version)]);
+      await runBatch(context, [update, rescoreStatement(context, current.id, version), dataVersionStatement(context.env.DB)]);
     } else {
       await update.run();
+      await bumpDataVersion(context.env.DB);
     }
   }
   const [topic, stats] = await Promise.all([
@@ -121,6 +124,7 @@ route.delete("/api/topics/:id", async (context: AppContext) => {
     context.env.DB.prepare("DELETE FROM meta WHERE key = ?").bind(`rescore:${id}`),
   ]);
   if (!results[0].meta.changes) return context.json({ error: "not_found" }, 404);
+  await bumpDataVersion(context.env.DB);
   return context.json({ ok: true });
 });
 

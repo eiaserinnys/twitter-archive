@@ -3,6 +3,7 @@ import { buildState } from "../shared/tweet-state.js";
 import { callJev, JEV_USD_PER_MILLION_INPUT, type JevQuestion, type JevRequest } from "../shared/jev-client.js";
 import { queryIdChunks } from "./db/chunked.js";
 import type { D1PreparedStatement, Env } from "./env.js";
+import { bumpDataVersion } from "./db/meta.js";
 
 export interface MissingTopic {
   id: string;
@@ -206,7 +207,11 @@ function scoreBatchSize(env: Env): number {
   return batchSize;
 }
 
-async function scoreWork(env: Env, work: ScoreCandidate[]): Promise<{
+interface ScoreWriteTracker {
+  rows: number;
+}
+
+async function scoreWork(env: Env, work: ScoreCandidate[], writes: ScoreWriteTracker): Promise<{
   scored: number;
   stoppedForBudget: boolean;
   failed: number;
@@ -255,13 +260,16 @@ async function scoreWork(env: Env, work: ScoreCandidate[]): Promise<{
       if (!env.DB.batch) throw new Error("D1 batch execution is unavailable.");
       const results = await env.DB.batch(statements);
       if (results.some((statement) => !statement.success)) throw new Error(`D1 rejected scores for tweet ${item.tweet.id}.`);
+      writes.rows += scores.length;
       spentUsd += costUsd;
       scored += 1;
       reservedUsd -= estimatedCostUsd;
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(6, work.length) }, () => worker()));
+  const outcomes = await Promise.allSettled(Array.from({ length: Math.min(6, work.length) }, () => worker()));
+  const failure = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+  if (failure) throw failure.reason;
   return { scored, stoppedForBudget, failed };
 }
 
@@ -269,16 +277,26 @@ export async function scoreCollectedTweets(env: Env, ids: string[]): Promise<{ s
   scoreBatchSize(env);
   const tweets = await tweetsByIds(env, [...new Set(ids)]);
   const work = await candidatesForTweets(env, tweets);
-  const result = await scoreWork(env, work);
-  return { scored: result.scored, stoppedForBudget: result.stoppedForBudget };
+  const writes = { rows: 0 };
+  try {
+    const result = await scoreWork(env, work, writes);
+    return { scored: result.scored, stoppedForBudget: result.stoppedForBudget };
+  } finally {
+    if (writes.rows > 0) await bumpDataVersion(env.DB);
+  }
 }
 
 export async function scorePendingTweets(env: Env): Promise<{ scored: number; stoppedForBudget: boolean }> {
   const batchSize = scoreBatchSize(env);
   const tweets = await recentPendingTweets(env, batchSize);
   const work = await candidatesForTweets(env, tweets);
-  const result = await scoreWork(env, work);
-  return { scored: result.scored, stoppedForBudget: result.stoppedForBudget };
+  const writes = { rows: 0 };
+  try {
+    const result = await scoreWork(env, work, writes);
+    return { scored: result.scored, stoppedForBudget: result.stoppedForBudget };
+  } finally {
+    if (writes.rows > 0) await bumpDataVersion(env.DB);
+  }
 }
 
 async function removeRescoreJob(env: Env, key: string, value: string): Promise<void> {
@@ -294,42 +312,47 @@ export async function processRescoreJobs(env: Env): Promise<{ scored: number; st
   const batchSize = scoreBatchSize(env);
   let scored = 0;
   let stoppedForBudget = false;
-  for (const job of jobs.results) {
-    const state = JSON.parse(job.value) as RescoreState;
-    const topic = await env.DB.prepare("SELECT version, active FROM topics WHERE id = ?")
-      .bind(job.key.slice("rescore:".length)).first<{ version: string; active: number }>();
-    if (!topic || !topic.active || topic.version !== state.version) {
-      await removeRescoreJob(env, job.key, job.value);
-      continue;
-    }
+  const writes = { rows: 0 };
+  try {
+    for (const job of jobs.results) {
+      const state = JSON.parse(job.value) as RescoreState;
+      const topic = await env.DB.prepare("SELECT version, active FROM topics WHERE id = ?")
+        .bind(job.key.slice("rescore:".length)).first<{ version: string; active: number }>();
+      if (!topic || !topic.active || topic.version !== state.version) {
+        await removeRescoreJob(env, job.key, job.value);
+        continue;
+      }
 
-    const tweets = await env.DB.prepare(`
-      SELECT id, created_at, date_kst, year, month, kind, text,
-        parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
-      FROM tweets WHERE id > ? ORDER BY id LIMIT ?
-    `).bind(state.cursor, batchSize).all<TweetRow>();
-    if (tweets.results.length === 0) {
-      await removeRescoreJob(env, job.key, job.value);
-      continue;
-    }
+      const tweets = await env.DB.prepare(`
+        SELECT id, created_at, date_kst, year, month, kind, text,
+          parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
+        FROM tweets WHERE id > ? ORDER BY id LIMIT ?
+      `).bind(state.cursor, batchSize).all<TweetRow>();
+      if (tweets.results.length === 0) {
+        await removeRescoreJob(env, job.key, job.value);
+        continue;
+      }
 
-    const topicId = job.key.slice("rescore:".length);
-    const work = await candidatesForTweets(env, tweets.results, topicId);
-    const result = await scoreWork(env, work);
-    scored += result.scored;
-    if (result.failed > 0 || result.stoppedForBudget) {
-      stoppedForBudget ||= result.stoppedForBudget;
-      if (result.stoppedForBudget) break;
-      continue;
-    }
+      const topicId = job.key.slice("rescore:".length);
+      const work = await candidatesForTweets(env, tweets.results, topicId);
+      const result = await scoreWork(env, work, writes);
+      scored += result.scored;
+      if (result.failed > 0 || result.stoppedForBudget) {
+        stoppedForBudget ||= result.stoppedForBudget;
+        if (result.stoppedForBudget) break;
+        continue;
+      }
 
-    if (tweets.results.length < batchSize) {
-      await removeRescoreJob(env, job.key, job.value);
-    } else {
-      const nextState = JSON.stringify({ version: state.version, cursor: tweets.results[tweets.results.length - 1].id });
-      await env.DB.prepare("UPDATE meta SET value = ? WHERE key = ? AND value = ?")
-        .bind(nextState, job.key, job.value).run();
+      if (tweets.results.length < batchSize) {
+        await removeRescoreJob(env, job.key, job.value);
+      } else {
+        const nextState = JSON.stringify({ version: state.version, cursor: tweets.results[tweets.results.length - 1].id });
+        await env.DB.prepare("UPDATE meta SET value = ? WHERE key = ? AND value = ?")
+          .bind(nextState, job.key, job.value).run();
+      }
     }
+    return { scored, stoppedForBudget };
+  } finally {
+    if (writes.rows > 0) await bumpDataVersion(env.DB);
   }
-  return { scored, stoppedForBudget };
 }

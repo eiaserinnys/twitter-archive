@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import type { Env } from "../env.js";
 import type { Viewer } from "../auth.js";
+import { getOrCacheJson } from "../cache.js";
 import { daysBetween, todayKst } from "../dates.js";
+import { getDataVersion } from "../db/meta.js";
 import { getCalendarCounts, getMonthCounts, getTimelineCounts } from "../db/timeline.js";
 import { visibleTags } from "../db/tags.js";
 import { shapeTimelineRows } from "../visibility.js";
@@ -12,30 +14,37 @@ const route = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
 
 route.get("/api/timeline", async (context: AppContext) => {
   const viewer = context.get("viewer");
-  const [rows, tags] = await Promise.all([
-    getTimelineCounts(context.env.DB, viewer),
-    visibleTags(context.env.DB, viewer),
-  ]);
   const today = todayKst();
-  const long = [];
-  const shortCounts: Record<string, number> = {};
-  for (const tag of tags) {
-    const end = tag.end_date ?? today;
-    if (daysBetween(tag.start_date, end) >= 365) {
-      long.push(tag);
-      continue;
-    }
-    const firstYear = Number(tag.start_date.slice(0, 4));
-    const lastYear = Number(end.slice(0, 4));
-    for (let year = firstYear; year <= lastYear; year += 1) {
-      const key = String(year);
-      shortCounts[key] = (shortCounts[key] ?? 0) + 1;
-    }
-  }
-  return context.json({
-    years: shapeTimelineRows(rows),
-    tags: { long, short_counts: shortCounts },
-  });
+  const dataVersion = await getDataVersion(context.env.DB);
+  const response = await getOrCacheJson(
+    context.req.raw,
+    dataVersion,
+    viewer.viewingAs,
+    async () => {
+      const [rows, tags] = await Promise.all([
+        getTimelineCounts(context.env.DB, viewer),
+        visibleTags(context.env.DB, viewer),
+      ]);
+      const long = [];
+      const shortCounts: Record<string, number> = {};
+      for (const tag of tags) {
+        const end = tag.end_date ?? today;
+        if (daysBetween(tag.start_date, end) >= 365) {
+          long.push(tag);
+          continue;
+        }
+        const firstYear = Number(tag.start_date.slice(0, 4));
+        const lastYear = Number(end.slice(0, 4));
+        for (let year = firstYear; year <= lastYear; year += 1) {
+          const key = String(year);
+          shortCounts[key] = (shortCounts[key] ?? 0) + 1;
+        }
+      }
+      return { years: shapeTimelineRows(rows), tags: { long, short_counts: shortCounts } };
+    },
+    today,
+  );
+  return context.json(response);
 });
 
 route.get("/api/timeline/:year", async (context: AppContext) => {
@@ -43,26 +52,36 @@ route.get("/api/timeline/:year", async (context: AppContext) => {
   if (!/^\d{4}$/.test(rawYear)) return invalid(context, "Year must use YYYY format.");
   const year = Number(rawYear);
   const viewer = context.get("viewer");
-  const [rows, allTags] = await Promise.all([
-    getMonthCounts(context.env.DB, year, viewer),
-    visibleTags(context.env.DB, viewer),
-  ]);
-  const months = Array.from({ length: 12 }, (_, index) => ({
-    month: index + 1,
-    total: 0,
-    counts: {} as Record<string, number>,
-  }));
-  for (const row of rows) {
-    const month = months[row.month - 1];
-    month.total = row.total;
-    if (row.topic_id && row.topic_count > 0) month.counts[row.topic_id] = row.topic_count;
-  }
-  const firstDate = `${rawYear}-01-01`;
-  const lastDate = `${rawYear}-12-31`;
   const today = todayKst();
-  const tags = allTags.filter((tag) => tag.start_date <= lastDate
-    && (tag.end_date ?? today) >= firstDate);
-  return context.json({ year, months, tags });
+  const dataVersion = await getDataVersion(context.env.DB);
+  const response = await getOrCacheJson(
+    context.req.raw,
+    dataVersion,
+    viewer.viewingAs,
+    async () => {
+      const [rows, allTags] = await Promise.all([
+        getMonthCounts(context.env.DB, year, viewer),
+        visibleTags(context.env.DB, viewer),
+      ]);
+      const months = Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        total: 0,
+        counts: {} as Record<string, number>,
+      }));
+      for (const row of rows) {
+        const month = months[row.month - 1];
+        month.total = row.total;
+        if (row.topic_id && row.topic_count > 0) month.counts[row.topic_id] = row.topic_count;
+      }
+      const firstDate = `${rawYear}-01-01`;
+      const lastDate = `${rawYear}-12-31`;
+      const tags = allTags.filter((tag) => tag.start_date <= lastDate
+        && (tag.end_date ?? today) >= firstDate);
+      return { year, months, tags };
+    },
+    today,
+  );
+  return context.json(response);
 });
 
 route.get("/api/calendar", async (context: AppContext) => {
