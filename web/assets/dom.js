@@ -1,4 +1,5 @@
 import { write } from './api.js';
+import { withBase } from './base-path.js';
 
 export const $ = id => document.getElementById(id);
 export const el = (tag, className, text) => {
@@ -125,7 +126,7 @@ export function tweetCard(tweet, ctx, { why, selectedTopic } = {}) {
     media.forEach((entry, index) => {
       const a = el('a'); a.href = tweet.x_url; a.target = '_blank'; a.rel = 'noopener noreferrer';
       a.setAttribute('aria-label', `첨부 미디어 ${index + 1}, X에서 보기`);
-      const img = el('img'); img.alt = entry.alt || ''; img.loading = 'lazy'; img.src = entry.url;
+      const img = el('img'); img.alt = entry.alt || ''; img.loading = 'lazy'; img.src = withBase(entry.url);
       img.addEventListener('error', () => { img.remove(); a.classList.add('broken'); }, { once: true });
       a.append(img);
       if (entry.type !== 'photo') a.append(el('span', 'play', entry.type === 'video' ? 'VIDEO' : 'GIF'));

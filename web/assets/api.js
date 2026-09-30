@@ -1,3 +1,5 @@
+import { withBase } from './base-path.js';
+
 let visitorPreview = sessionStorage.getItem('visitor-preview') === '1';
 
 export class ApiError extends Error {
@@ -15,7 +17,7 @@ export function setPreview(on) {
 }
 
 async function request(method, path, { params = {}, body, read = method === 'GET' } = {}) {
-  const url = new URL(path, location.origin);
+  const url = new URL(withBase(path), location.origin);
   for (const [key, value] of Object.entries(params)) {
     if (value !== null && value !== undefined && value !== '') url.searchParams.set(key, value);
   }

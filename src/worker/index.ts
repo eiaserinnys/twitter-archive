@@ -50,4 +50,32 @@ app.notFound((context) => context.req.path.startsWith("/api/")
 app.onError((_error, context) => context.json({ error: "internal", message: "Internal server error." }, 500));
 
 export { app };
-export default { fetch: app.fetch, scheduled: handleScheduled };
+
+async function fetch(request: Request, env: Env, executionCtx?: Parameters<typeof app.fetch>[2]): Promise<Response> {
+  const basePath = env.BASE_PATH;
+  if (!basePath) return app.fetch(request, env, executionCtx);
+
+  const url = new URL(request.url);
+  if (url.pathname === basePath) {
+    url.pathname += "/";
+    return Response.redirect(url.toString(), 301);
+  }
+  if (!url.pathname.startsWith(`${basePath}/`)) return new Response("Not Found", { status: 404 });
+  url.pathname = url.pathname.slice(basePath.length);
+  const response = await app.fetch(new Request(url, request), env, executionCtx);
+  const headers = new Headers(response.headers);
+  const location = headers.get("Location");
+  if (location?.startsWith("/") && !location.startsWith("/cdn-cgi/")) {
+    headers.set("Location", `${basePath}${location}`);
+  }
+  if (headers.get("Content-Type")?.includes("text/html")) {
+    const html = (await response.text())
+      .replace(/\b(src|href)="\/(?!\/|cdn-cgi\/)/g, (_match, attribute: string) => `${attribute}="${basePath}/`)
+      .replace("<head>", `<head><meta name="base-path" content="${basePath}">`);
+    headers.delete("Content-Length");
+    return new Response(html, { status: response.status, statusText: response.statusText, headers });
+  }
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+export default { fetch, scheduled: handleScheduled };

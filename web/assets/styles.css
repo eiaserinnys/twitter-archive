@@ -124,12 +124,14 @@ a { color: inherit; }
   position: sticky; top: var(--banner-h); z-index: 30; display: grid; grid-template-columns: repeat(3, 1fr);
   height: var(--tabs-h); background: var(--bg); border-bottom: 1px solid var(--rule);
 }
+.tabs:has(#t-search[hidden]) { grid-template-columns: repeat(2, 1fr); }
 .tab {
   display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0;
   font-size: 17px; font-weight: 800; letter-spacing: -0.03em; color: var(--ink-2);
   transition: background var(--t-fast) linear, color var(--t-fast) linear;
 }
 .tab + .tab { border-left: 1px solid var(--line); }
+.tab[hidden] { display: none; }
 .tab b { font: 700 13px/1 var(--mono); letter-spacing: 0; color: var(--ink-3); }
 .tab:hover { color: var(--ink); background: var(--bg-2); }
 .tab[aria-selected="true"] { background: var(--acid); color: var(--on-acid); }
@@ -705,6 +707,7 @@ button.day[aria-pressed="true"] .dt i { box-shadow: 0 0 0 1.5px var(--on-acid); 
   .search .prompt { font-size: 26px; padding-bottom: 14px; }
   .search kbd, .clear-q { margin-bottom: 14px; }
   .tabs { grid-template-columns: repeat(3, 200px) 1fr; }
+  .tabs:has(#t-search[hidden]) { grid-template-columns: repeat(2, 200px) 1fr; }
   .tabs::after { content: ""; border-left: 1px solid var(--line); }
   .tab { font-size: 18px; }
 
