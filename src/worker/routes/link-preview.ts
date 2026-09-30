@@ -83,6 +83,7 @@ async function fetchPreview(url: string, initialUrl: URL): Promise<LinkPreview> 
     let redirects = 0;
     while (true) {
       const response = await fetch(currentUrl.toString(), {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; twitter-archive-link-preview/1.0; +https://github.com/eiaserinnys/twitter-archive)" },
         redirect: "manual",
         signal: controller.signal,
       });

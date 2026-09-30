@@ -476,6 +476,20 @@ dialog.confirm p { margin: 10px 0 18px; font-size: 16px; color: var(--ink-2); }
 .tw-text { margin: 10px 0 0; font-size: 16px; line-height: 1.62; white-space: pre-line; color: var(--ink); }
 .tw-text a, .tw-ctx a { color: var(--acid-text); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 :root[data-theme="light"] .tw-text a, :root[data-theme="light"] .tw-ctx a { text-decoration-color: var(--ink-3); }
+/* Article and OG cards share the existing tweet typography and frame colors. */
+.tw-article, .tw-link { margin-top: calc(var(--pad) * .6); border: thin solid var(--line); }
+.tw-article, .tw-link-body { padding: calc(var(--pad) * .6); }
+.tw-article-title, .tw-link-title { display: block; font-size: inherit; line-height: inherit; }
+.tw-article-title { margin-top: calc(var(--pad) * .3); }
+.tw-article-body .tw-text { margin-top: calc(var(--pad) * .5); }
+.tw-article-actions { display: flex; flex-wrap: wrap; gap: calc(var(--pad) * .4); margin-top: calc(var(--pad) * .6); }
+.tw-article-actions .btn { font: inherit; text-decoration: none; }
+.tw-link { display: block; color: inherit; text-decoration: none; overflow: hidden; }
+.tw-link:hover { border-color: var(--ink-3); }
+.tw-link img { display: block; width: 100%; aspect-ratio: 3 / 1; object-fit: cover; }
+.tw-link-body { display: grid; gap: calc(var(--pad) * .3); }
+.tw-link-title, .tw-link-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.tw-link-description { margin: 0; color: var(--ink-2); font: inherit; }
 .tw-media { display: grid; gap: 4px; margin-top: 12px; grid-template-columns: 1fr 1fr; max-width: 520px; }
 .tw-media.n1 { grid-template-columns: 1fr; }
 .tw-media a { position: relative; display: block; aspect-ratio: 16 / 10; overflow: hidden; background: var(--bg-3); border: 1px solid var(--line); }
@@ -688,6 +702,7 @@ button.day[aria-pressed="true"] .dt i { box-shadow: 0 0 0 1.5px var(--on-acid); 
   .sec-head h2 { font-size: 44px; }
 }
 @media (min-width: 1080px) {
+  .tw-link img { aspect-ratio: 2 / 1; }
   :root { --pad: 40px; --tabs-h: 56px; }
   .mast { container-type: inline-size; display: grid; grid-template-columns: fit-content(min(54%, 100% - 600px)) minmax(0, 3fr) minmax(0, 4fr); grid-template-rows: auto auto 1fr; }
   .mast-top { grid-column: 1; grid-row: 1; justify-content: flex-start; padding-top: 18px; }

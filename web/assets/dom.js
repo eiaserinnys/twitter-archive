@@ -1,4 +1,5 @@
 import { write } from './api.js';
+import { attachLinkPreview } from './link-preview.js';
 import { withBase } from './base-path.js';
 
 export const $ = id => document.getElementById(id);
@@ -119,7 +120,39 @@ export function tweetCard(tweet, ctx, { why, selectedTopic } = {}) {
     const box = el('div', 'tw-ctx'); box.append(el('small', null, tweet.quoted ? '인용한 글' : tweet.kind === 'self_reply' ? '앞 글' : '답글을 단 글'));
     const p = el('p'); linkify(p, context.text); box.append(p); article.append(box);
   }
-  if (tweet.text) { const p = el('p', 'tw-text'); linkify(p, tweet.text); article.append(p); }
+  const p = el('p', 'tw-text');
+  if (tweet.text) linkify(p, tweet.text);
+  const links = [...p.querySelectorAll('a')];
+  const xHosts = ['x.com', 'twitter.com', 't.co'];
+  const belongsTo = (link, host) => link.hostname === host || link.hostname.endsWith(`.${host}`);
+  const articleLink = links.find(link =>
+    ['x.com', 'twitter.com'].some(host => belongsTo(link, host)) && link.pathname.startsWith('/i/article/'));
+  if (tweet.text && !(tweet.article && articleLink && tweet.text.trim() === articleLink.getAttribute('href'))) article.append(p);
+  if (tweet.article) {
+    const block = el('div', 'tw-article');
+    block.append(el('span', 'label', '아티클'), el('strong', 'tw-article-title', tweet.article.title));
+    const body = el('div', 'tw-article-body');
+    const toggle = el('button', 'btn', '펼치기'); toggle.type = 'button';
+    const text = tweet.article.text.replace(/\r\n?/g, '\n');
+    const preview = Array.from(text.replace(/\s+/g, ' ').trim());
+    let expanded = false;
+    const render = () => {
+      body.replaceChildren();
+      const paragraphs = expanded ? text.split(/\n[ \t]*\n+/) : [preview.slice(0, 280).join('') + (preview.length > 280 ? '…' : '')];
+      paragraphs.forEach(value => body.append(el('p', 'tw-text', value)));
+      toggle.textContent = expanded ? '접기' : '펼치기';
+      toggle.setAttribute('aria-expanded', String(expanded));
+    };
+    toggle.addEventListener('click', () => { expanded = !expanded; render(); });
+    render();
+    const actions = el('div', 'tw-article-actions');
+    const read = el('a', 'btn', 'X에서 읽기 ↗'); read.href = articleLink?.href || tweet.x_url;
+    read.target = '_blank'; read.rel = 'noopener noreferrer';
+    actions.append(toggle, read); block.append(body, actions); article.append(block);
+  } else {
+    const link = links.find(link => ['http:', 'https:'].includes(link.protocol) && !xHosts.some(host => belongsTo(link, host)));
+    if (link) attachLinkPreview(item, article, tweet.id, link.getAttribute('href'), el);
+  }
   const media = tweet.media.filter(item => item.url).slice(0, 4);
   if (media.length) {
     const box = el('div', `tw-media n${media.length}`);
