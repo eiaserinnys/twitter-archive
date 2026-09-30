@@ -44,10 +44,26 @@ $('themeBtn').addEventListener('click', () => {
 });
 paintTheme();
 
+function fitHandle() {
+  const heading = $('handleLink').parentElement;
+  heading.style.removeProperty('font-size');
+  heading.style.removeProperty('white-space');
+  let size = parseFloat(getComputedStyle(heading).fontSize);
+  // Fit once, then correct rounding after the grid and text have resized.
+  for (let pass = 0; pass < 2 && heading.scrollWidth > heading.clientWidth; pass++) {
+    size = Math.max(32, size * heading.clientWidth / heading.scrollWidth);
+    heading.style.fontSize = `${size}px`;
+  }
+  if (size === 32 && heading.scrollWidth > heading.clientWidth) heading.style.whiteSpace = 'normal';
+}
+window.addEventListener('resize', fitHandle);
+document.fonts.ready.then(fitHandle);
+
 function paintHeader() {
   const meta = context.meta;
   $('siteTitle').textContent = meta.site_title;
   $('handleLink').textContent = `@${meta.account_handle}`;
+  fitHandle();
   $('handleLink').href = `https://x.com/${encodeURIComponent(meta.account_handle)}`;
   document.title = `@${meta.account_handle} ${meta.site_title}`;
   if (meta.first_date) $('since').textContent = `, ${+meta.first_date.slice(0, 4)}년 ${+meta.first_date.slice(5, 7)}월부터`;
