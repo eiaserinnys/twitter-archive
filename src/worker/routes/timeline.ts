@@ -3,7 +3,7 @@ import type { Env } from "../env.js";
 import type { Viewer } from "../auth.js";
 import { getOrCacheJson } from "../cache.js";
 import { daysBetween, todayKst } from "../dates.js";
-import { getDataVersion } from "../db/meta.js";
+import { getDataVersion, getReplyVisibility } from "../db/meta.js";
 import { getCalendarCounts, getMonthCounts, getTimelineCounts } from "../db/timeline.js";
 import { visibleTags } from "../db/tags.js";
 import { shapeTimelineRows } from "../visibility.js";
@@ -22,14 +22,15 @@ route.get("/api/timeline", async (context: AppContext) => {
     dataVersion,
     viewer.viewingAs,
     async () => {
+      const replies = await getReplyVisibility(context.env.DB);
       const [rows, tags, otherEnabled] = await Promise.all([
-        getTimelineCounts(context.env.DB, viewer),
+        getTimelineCounts(context.env.DB, viewer, replies),
         visibleTags(context.env.DB, viewer),
         isOtherTopicEnabled(context.env.DB),
       ]);
       const years = shapeTimelineRows(rows);
       if (otherEnabled) {
-        for (const row of await getOtherCounts(context.env.DB, "year")) {
+        for (const row of await getOtherCounts(context.env.DB, "year", viewer, replies)) {
           years.find(year => year.year === row.period)!.counts[OTHER_TOPIC_ID] = row.other_count;
         }
       }
@@ -68,8 +69,9 @@ route.get("/api/timeline/:year", async (context: AppContext) => {
     dataVersion,
     viewer.viewingAs,
     async () => {
+      const replies = await getReplyVisibility(context.env.DB);
       const [rows, allTags, otherEnabled] = await Promise.all([
-        getMonthCounts(context.env.DB, year, viewer),
+        getMonthCounts(context.env.DB, year, viewer, replies),
         visibleTags(context.env.DB, viewer),
         isOtherTopicEnabled(context.env.DB),
       ]);
@@ -84,7 +86,7 @@ route.get("/api/timeline/:year", async (context: AppContext) => {
         if (row.topic_id && row.topic_count > 0) month.counts[row.topic_id] = row.topic_count;
       }
       if (otherEnabled) {
-        for (const row of await getOtherCounts(context.env.DB, "month", year)) {
+        for (const row of await getOtherCounts(context.env.DB, "month", viewer, replies, year)) {
           months[Number(row.period) - 1].counts[OTHER_TOPIC_ID] = row.other_count;
         }
       }
@@ -116,8 +118,9 @@ route.get("/api/calendar", async (context: AppContext) => {
     dataVersion,
     viewer.viewingAs,
     async () => {
+      const replies = await getReplyVisibility(context.env.DB);
       const [rows, otherEnabled] = await Promise.all([
-        getCalendarCounts(context.env.DB, year, month, viewer),
+        getCalendarCounts(context.env.DB, year, month, viewer, replies),
         isOtherTopicEnabled(context.env.DB),
       ]);
       const days = new Map<string, { date: string; total: number; top_topic: string | null }>();
@@ -130,7 +133,7 @@ route.get("/api/calendar", async (context: AppContext) => {
         if (day.top_topic === null && row.topic_id !== null) day.top_topic = row.topic_id;
       }
       if (otherEnabled) {
-        for (const row of await getOtherCounts(context.env.DB, "date_kst", year, month)) {
+        for (const row of await getOtherCounts(context.env.DB, "date_kst", viewer, replies, year, month)) {
           const day = days.get(String(row.period))!;
           if (day.top_topic === null) day.top_topic = OTHER_TOPIC_ID;
         }

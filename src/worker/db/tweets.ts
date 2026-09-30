@@ -3,7 +3,8 @@ import type { Viewer } from "../auth.js";
 import type { D1Database } from "../env.js";
 import { decodeCursor, encodeCursor, type TweetCursor } from "../cursor.js";
 import { queryIdChunks } from "./chunked.js";
-import { publicHiddenSql, selectTweetTopicChips, type TopicScoreRow } from "../visibility.js";
+import { getReplyVisibility } from "./meta.js";
+import { publicHiddenSql, replyScopeSql, type Visibility, selectTweetTopicChips, type TopicScoreRow } from "../visibility.js";
 import { serializeTweet, type MediaDbRow, type TweetDbRow, type TweetOut } from "../serialize.js";
 import { OTHER_TOPIC_ID, otherTweetSql } from "../other-topic.js";
 
@@ -34,8 +35,8 @@ function visibleTopicClause(viewer: Viewer): string {
     : "tp.timeline_visibility = 'public'";
 }
 
-function filterWhere(filters: TweetFilters, viewer: Viewer): { sql: string; values: unknown[] } {
-  const clauses = ["1 = 1"];
+function filterWhere(filters: TweetFilters, viewer: Viewer, replyVisibility: Visibility): { sql: string; values: unknown[] } {
+  const clauses = [replyScopeSql("t", viewer, replyVisibility)];
   const values: unknown[] = [];
   if (viewer.viewingAs === "visitor") clauses.push(`NOT ${publicHiddenSql("t")}`);
   else if (filters.public_hidden) clauses.push(publicHiddenSql("t"));
@@ -80,7 +81,7 @@ function filterWhere(filters: TweetFilters, viewer: Viewer): { sql: string; valu
     )`);
       values.push(TOPIC_SEED.display_threshold, ...regularTopics);
     }
-    if (filters.topics.includes(OTHER_TOPIC_ID)) topicClauses.push(otherTweetSql("t"));
+    if (filters.topics.includes(OTHER_TOPIC_ID)) topicClauses.push(otherTweetSql("t", viewer, replyVisibility));
     clauses.push(`(${topicClauses.join(" OR ")})`);
   }
   return { sql: clauses.join(" AND "), values };
@@ -147,7 +148,8 @@ export async function queryTweets(
   viewer: Viewer,
   filters: TweetFilters,
 ): Promise<TweetListResult> {
-  const base = filterWhere(filters, viewer);
+  const replies = await getReplyVisibility(db);
+  const base = filterWhere(filters, viewer, replies);
   const count = filters.cursor ? null : await db.prepare(`SELECT COUNT(*) AS total FROM tweets t WHERE ${base.sql}`)
     .bind(...base.values).first<{ total: number }>();
   const pageClauses = [base.sql];
@@ -186,8 +188,10 @@ export async function getOnThisDayTweets(
   db: D1Database,
   dates: string[],
   viewer: Viewer,
+  replyVisibility?: Visibility,
 ): Promise<OnThisDayTweetRow[]> {
   if (dates.length === 0) return [];
+  const replies = replyVisibility ?? await getReplyVisibility(db);
   const placeholders = dates.map(() => "?").join(", ");
   const ownerColumns = viewer.viewingAs === "owner" ? ", visibility, public_hidden" : "";
   const ownerSource = viewer.viewingAs === "owner"
@@ -203,7 +207,7 @@ export async function getOnThisDayTweets(
         COUNT(*) OVER (PARTITION BY t.date_kst) AS day_total,
         ROW_NUMBER() OVER (PARTITION BY t.date_kst ORDER BY t.created_at, t.id) AS position
       FROM tweets t
-      WHERE t.date_kst IN (${placeholders})${viewer.viewingAs === "visitor" ? ` AND NOT ${publicHiddenSql("t")}` : ""}
+      WHERE ${replyScopeSql("t", viewer, replies)} AND t.date_kst IN (${placeholders})${viewer.viewingAs === "visitor" ? ` AND NOT ${publicHiddenSql("t")}` : ""}
     )
     WHERE position <= 3
     ORDER BY date_kst, created_at, id

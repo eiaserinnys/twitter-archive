@@ -12,7 +12,8 @@ import { buildJudgeRequest, deriveJudgment, type SearchPeriod, type SearchStrate
 import { rankCandidates, type RankedTweet, type RankQuestion } from "../search/rank.js";
 import type { TweetDbRow } from "../serialize.js";
 import { canViewSearchTopic } from "../visibility.js";
-import { publicHiddenSql } from "../visibility.js";
+import { getReplyVisibility } from "../db/meta.js";
+import { publicHiddenSql, replyScopeSql } from "../visibility.js";
 import type { AppContext } from "./helpers.js";
 import { invalid, isDate, ownerJsonBody } from "./helpers.js";
 
@@ -125,9 +126,10 @@ async function runSearch(
   allowedTopics: Awaited<ReturnType<typeof listTopicRows>>,
 ) {
   const config: JevConfig = { baseUrl: context.env.TYPESAFE_BASE_URL, apiKey: context.env.TYPESAFE_API_KEY };
+  const replies = await getReplyVisibility(context.env.DB);
   const judgeStart = Date.now();
   const yearRows = await context.env.DB.prepare(`SELECT DISTINCT t.year FROM tweets t
-    ${viewer.viewingAs === "visitor" ? `WHERE NOT ${publicHiddenSql("t")}` : ""}
+    WHERE ${replyScopeSql("t", viewer, replies)} AND ${viewer.viewingAs === "visitor" ? `NOT ${publicHiddenSql("t")}` : "1 = 1"}
     ORDER BY t.year`)
     .all<{ year: number }>();
   const years = yearRows.results.map((row) => row.year);
@@ -140,7 +142,7 @@ async function runSearch(
   const unused = judged.strategies.filter((strategy) => !strategy.selected).map((strategy) => strategy.id);
   const candidateFilters = { q: body.q, topicCoordinates: judged.topicCoordinates, period: judged.period,
     topics: body.topics, kinds: body.kinds, from: body.from, to: body.to };
-  const candidates = await findCandidates(context.env.DB, viewer, { ...candidateFilters, strategies: selected });
+  const candidates = await findCandidates(context.env.DB, viewer, { ...candidateFilters, strategies: selected }, replies);
   const candidateMs = Date.now() - candidateStart;
 
   let round = await rankRound(config, body.q, candidates, judged.intent);
@@ -158,7 +160,7 @@ async function runSearch(
     const round2Start = Date.now();
     const nextCandidates = await findCandidates(context.env.DB, viewer, {
       ...candidateFilters, strategies: unused, excludeIds: candidates.map((row) => row.id),
-    });
+    }, replies);
     candidateCount += nextCandidates.length;
     round = await rankRound(config, body.q, nextCandidates, judged.intent);
     stages.push({ name: "round2", ms: Date.now() - round2Start });

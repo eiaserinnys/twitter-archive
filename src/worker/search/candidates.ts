@@ -2,7 +2,8 @@ import { TOPIC_SEED } from "../../shared/topics.js";
 import type { Viewer } from "../auth.js";
 import type { D1Database } from "../env.js";
 import type { TweetDbRow } from "../serialize.js";
-import { publicHiddenSql } from "../visibility.js";
+import { getReplyVisibility } from "../db/meta.js";
+import { publicHiddenSql, replyScopeSql, type Visibility } from "../visibility.js";
 import type { SearchPeriod, SearchStrategyId } from "./judge.js";
 
 export interface CandidateFilters {
@@ -17,7 +18,8 @@ export interface CandidateFilters {
   excludeIds?: string[];
 }
 
-export async function findCandidates(db: D1Database, viewer: Viewer, filters: CandidateFilters): Promise<TweetDbRow[]> {
+export async function findCandidates(db: D1Database, viewer: Viewer, filters: CandidateFilters, replyVisibility?: Visibility): Promise<TweetDbRow[]> {
+  const replies = replyVisibility ?? await getReplyVisibility(db);
   const words = filters.q.split(/\s+/).filter((word) => word.length >= 2);
   const wordSql = words.length > 0
     ? words.map(() => `(instr(lower(t.text || ' ' || COALESCE(t.parent_text, '') || ' ' || COALESCE(t.quoted_text, '') || ' ' || COALESCE(t.article_title, '') || ' ' || COALESCE(t.article_text, '')), lower(?)) > 0)`).join(" OR ")
@@ -31,7 +33,7 @@ export async function findCandidates(db: D1Database, viewer: Viewer, filters: Ca
     WHERE s.tweet_id = t.id
   )` : "0";
   const values: unknown[] = [...wordValues, ...coordinates.flatMap(({ id, score }) => [id, score])];
-  const clauses: string[] = [];
+  const clauses: string[] = [replyScopeSql("t", viewer, replies)];
   if (filters.from) { clauses.push("t.date_kst >= ?"); values.push(filters.from); }
   if (filters.to) { clauses.push("t.date_kst <= ?"); values.push(filters.to); }
   if (filters.strategies.includes("period") && filters.period) {
