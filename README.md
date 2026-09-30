@@ -25,6 +25,7 @@ A self-hosted archive for one X account. Browse posts by year and topic, search 
 - **주제별 보기**: 칸을 누르면 그 시기, 그 주제의 트윗을 모아 봅니다.
 - **뜻 검색**: 정확한 단어가 아니라 기억나는 내용으로 찾습니다.
 - **오늘**: 몇 년 전 같은 날의 트윗과 날짜별 달력입니다.
+- **아티클과 링크 카드**: X 아티클은 제목과 본문을 펼쳐 읽고, 트윗 속 링크에는 미리보기 카드를 붙입니다.
 - **기간 태그**: 경력이나 그때 즐긴 게임, 영화, 책에 기간을 붙여 연표와 함께 봅니다.
 - **공개 범위**: 주제별 기준과 트윗별 설정으로 방문자에게 보일 트윗을 고릅니다.
 - **자동 수집**: 새 트윗과 사진, 영상, 아티클 본문을 30분마다 가져와 채점합니다.
@@ -224,8 +225,8 @@ Docker 없이 실행하려면 `npm run serve -- --instance my-archive`를 씁니
 **오래된 빈 구간을 채우고 싶어요.**
 X 데이터 아카이브를 새로 받아 설정 파일의 `archive`를 바꾸고 설치를 다시 실행하세요. 이미 있는 트윗은 그대로 두고 빠진 트윗만 더합니다.
 
-**백업은 어떻게 하나요?**
-Cloudflare 설치는 `npx wrangler d1 export`로 DB를 내보내고 R2 버킷을 복사합니다. 내 서버 설치는 `instances/<이름>/runtime/` 폴더를 복사합니다. 원본 아카이브 zip도 함께 보관해 두세요.
+**백업과 복원은 어떻게 하나요?**
+Cloudflare 설치는 `npx wrangler d1 export DB --remote --output backup.sql --config wrangler.<이름>.toml`로 DB를 내보내고 R2 버킷을 복사해 둡니다. 복원할 때는 빈 D1에 `npx wrangler d1 execute DB --remote --file backup.sql --config wrangler.<이름>.toml`로 되돌리고 R2 파일을 다시 올립니다. 내 서버 설치는 `instances/<이름>/runtime/` 폴더를 통째로 복사하고, 복원할 때 그 폴더를 되돌린 뒤 다시 실행합니다. 원본 아카이브 zip도 함께 보관해 두면 언제든 설치를 다시 돌려 트윗과 미디어를 되살릴 수 있습니다.
 
 ## 개발
 
