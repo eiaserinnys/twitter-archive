@@ -74,6 +74,8 @@ export function baseTestEnv(DB: D1Database, overrides: Partial<Env> = {}): Env {
     MEDIA: { get: async () => null, put: async () => undefined },
     ASSETS: { fetch: async () => new Response(null, { status: 404 }) },
     SITE_TITLE: "test",
+    BASE_PATH: "",
+    VISITOR_SEARCH: "presets",
     SEARCH_DAILY_LIMIT: "200",
     TYPESAFE_BASE_URL: "https://jev.test",
     TYPESAFE_API_KEY: "fake",

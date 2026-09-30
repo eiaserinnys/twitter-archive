@@ -50,7 +50,7 @@ route.get("/api/meta", async (context: AppContext) => {
     undefined,
     context.env.CF_VERSION_METADATA?.id,
   );
-  return context.json({ ...response, last_collected_at: cacheMeta.last_collected_at });
+  return context.json({ ...response, visitor_search: context.env.VISITOR_SEARCH, last_collected_at: cacheMeta.last_collected_at });
 });
 
 export default route;

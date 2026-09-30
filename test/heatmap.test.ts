@@ -11,6 +11,10 @@ Object.defineProperty(globalThis, "sessionStorage", {
   configurable: true,
   value: { getItem: () => null, setItem() {} },
 });
+Object.defineProperty(globalThis, "document", {
+  configurable: true,
+  value: { querySelector: () => null },
+});
 // @ts-expect-error Browser assets are outside the TypeScript source tree.
 const { heatmapLegendLabels } = await import("../web/assets/timeline.js");
 

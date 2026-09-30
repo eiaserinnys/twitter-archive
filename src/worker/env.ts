@@ -36,6 +36,8 @@ export interface Env {
   MEDIA: R2Bucket;
   ASSETS: { fetch(request: Request): Promise<Response> };
   SITE_TITLE: string;
+  BASE_PATH: string;
+  VISITOR_SEARCH: "presets" | "off";
   SEARCH_DAILY_LIMIT: string;
   TYPESAFE_BASE_URL: string;
   TYPESAFE_API_KEY: string;

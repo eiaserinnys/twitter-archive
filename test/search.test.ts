@@ -7,6 +7,7 @@ import type { D1Database, D1PreparedStatement, Env } from "../src/worker/env.js"
 import { buildJudgeRequest, chooseStrategies, deriveJudgment } from "../src/worker/search/judge.js";
 import { findCandidates } from "../src/worker/search/candidates.js";
 import { buildRankRequest } from "../src/worker/search/rank.js";
+import { baseTestEnv } from "./d1-test-db.js";
 
 const jevCalls = vi.hoisted(() => ({
   responses: [] as Array<{ answers: Record<string, JevAnswer>; inputTokens: number }>,
@@ -70,6 +71,53 @@ function tweet(sqlite: DatabaseSync, id: string, text: string, year = 2015) {
 function score(sqlite: DatabaseSync, id: string, topic: string, value: number) {
   sqlite.prepare("INSERT INTO scores (tweet_id, topic, score, version) VALUES (?, ?, ?, 'v5')").run(id, topic, value);
 }
+
+describe("visitor search policy", () => {
+  it("rejects both visitor search endpoints before parsing or DB access when off", async () => {
+    const { db } = database();
+    const env = baseTestEnv(db, { VISITOR_SEARCH: "off", DEV_OWNER: "" });
+    const prepare = vi.spyOn(db, "prepare");
+    for (const request of [
+      new Request("https://archive.test/api/search", { method: "POST", body: "invalid JSON" }),
+      new Request("https://archive.test/api/search/presets"),
+    ]) {
+      const response = await app.fetch(request, env);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "search_disabled" });
+    }
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it("applies off to owner visitor preview but leaves owner searches available", async () => {
+    const { db, sqlite } = database();
+    const env = baseTestEnv(db, { VISITOR_SEARCH: "off" });
+    tweet(sqlite, "synthetic-1", "영화 이야기"); score(sqlite, "synthetic-1", "film", 0.9);
+    for (const path of ["/api/search", "/api/search/presets"]) {
+      const response = await app.request(`${path}?as=visitor`, path.endsWith("presets") ? {} : { method: "POST" }, env);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "search_disabled" });
+    }
+    expect((await app.request("/api/search/presets", {}, env)).status).toBe(200);
+    jevCalls.responses.push(
+      { answers: { topic_film: { noul: 0.9 }, topic_politics: { noul: 0.1 }, topic_secret: { noul: 0.1 },
+        period: { probabilities: { "2015": 0.1, none: 0.9 } }, intent: { choice: "many" },
+        strategy_period: { noul: 0.1 }, strategy_topics: { noul: 0.8 }, strategy_words: { noul: 0.2 } }, inputTokens: 100 },
+      { answers: { c0: { noul: 0.9 } }, inputTokens: 100 },
+    );
+    const response = await app.request("/api/search", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: "영화" }),
+    }, env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ results: [{ tweet: { id: "synthetic-1" } }] });
+  });
+
+  it.each(["presets", "off"] as const)("exposes %s in metadata", async (policy) => {
+    const { db } = database();
+    const response = await app.request("/api/meta", {}, baseTestEnv(db, { VISITOR_SEARCH: policy }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ visitor_search: policy });
+  });
+});
 
 describe("search judgment", () => {
   it("asks topic, period, intent and fixed strategy questions in one request", () => {

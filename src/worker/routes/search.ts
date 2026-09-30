@@ -184,6 +184,9 @@ async function runSearch(
 }
 
 route.get("/api/search/presets", async (context: AppContext) => {
+  if (context.env.VISITOR_SEARCH === "off" && context.get("viewer").viewingAs === "visitor") {
+    return context.json({ error: "search_disabled" }, 403);
+  }
   const presets = await publicSearchPresets(context.env.DB);
   return context.json({ presets });
 });
@@ -204,13 +207,16 @@ route.put("/api/search/presets", async (context: AppContext) => {
 });
 
 route.post("/api/search", async (context: AppContext) => {
+  const viewer = context.get("viewer");
+  if (context.env.VISITOR_SEARCH === "off" && viewer.viewingAs === "visitor") {
+    return context.json({ error: "search_disabled" }, 403);
+  }
   const contentType = context.req.header("content-type")?.split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/json") return context.json({ error: "json_required" }, 415);
   let value: unknown;
   try { value = await context.req.json(); } catch { value = null; }
   if (!value || typeof value !== "object" || Array.isArray(value)) return invalid(context, "Search request is invalid.");
 
-  const viewer = context.get("viewer");
   const rawBody = value as Record<string, unknown>;
   if (viewer.viewingAs === "visitor") {
     if ("q" in rawBody) {

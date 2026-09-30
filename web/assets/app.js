@@ -1,4 +1,5 @@
 import { get, isPreview } from './api.js';
+import { basePath, withBase } from './base-path.js';
 import { $, topicColors, shortOf } from './dom.js';
 import { createTimeline } from './timeline.js';
 import { createToday } from './today.js';
@@ -8,6 +9,7 @@ import { createSettings } from './settings.js';
 const context = { owner: false, preview: isPreview(), meta: null, timeline: null, tags: [], topics: [], searchTopics: [], topicById: new Map() };
 let timeline, today, finder, settings;
 let tab = 'timeline', lastRoute = '/';
+const routePath = () => location.pathname.slice(basePath.length);
 
 function showTab(name) {
   const changed = tab !== name;
@@ -26,7 +28,7 @@ function showTab(name) {
 
 function navigate(path, replace = false) {
   if (path !== '/settings') lastRoute = path;
-  history[replace ? 'replaceState' : 'pushState'](null, '', path);
+  history[replace ? 'replaceState' : 'pushState'](null, '', withBase(path));
 }
 
 function paintTheme() {
@@ -64,7 +66,7 @@ function paintHeader() {
   $('setBtn').hidden = !context.owner || context.preview;
   const authLink = $('authLink');
   authLink.hidden = context.preview;
-  authLink.href = context.owner ? '/cdn-cgi/access/logout' : '/owner';
+  authLink.href = context.owner ? '/cdn-cgi/access/logout' : withBase('/owner');
   authLink.textContent = context.owner ? '로그아웃' : '로그인';
   $('visSwitch').setAttribute('aria-checked', String(context.preview));
   const sourceLink = $('sourceLink');
@@ -85,6 +87,8 @@ async function loadData() {
   const ownerView = me.owner && !context.preview;
   context.topics = enriched.filter(topic => topic.timeline_visibility === 'public' || (ownerView && topic.timeline_visibility === 'owner'));
   context.searchTopics = enriched.filter(topic => topic.search_visibility === 'public' || (ownerView && topic.search_visibility === 'owner'));
+  context.searchEnabled = ownerView || meta.visitor_search !== 'off';
+  $('t-search').hidden = !context.searchEnabled;
   context.meta.topics = enriched;
   paintHeader();
 }
@@ -96,7 +100,7 @@ async function refreshData() {
 }
 
 async function renderRoute() {
-  const path = location.pathname;
+  const path = routePath();
   if (path !== '/settings' && settings?.isOpen()) $('settings').close();
   if (path === '/settings') {
     if (!context.owner || context.preview) { navigate('/', true); showTab('timeline'); timeline.closeYear(false); return; }
@@ -109,6 +113,7 @@ async function renderRoute() {
     window.scrollTo(0, document.querySelector('.tabs').offsetTop); return;
   }
   if (path === '/search') {
+    if (!context.searchEnabled) { navigate('/', true); showTab('timeline'); timeline.closeYear(false); return; }
     showTab('search'); await finder.run(new URLSearchParams(location.search).get('q') || '', false); return;
   }
   if (path === '/today') { showTab('today'); await today.showToday(); return; }
@@ -135,7 +140,7 @@ async function main() {
     navigate,
     onClose: () => { navigate(lastRoute, true); renderRoute(); },
     onPreview: async () => {
-      if (location.pathname === '/settings') navigate(lastRoute, true);
+      if (routePath() === '/settings') navigate(lastRoute, true);
       await refreshData(); await renderRoute();
     },
     refreshData,
@@ -150,8 +155,8 @@ async function main() {
   document.querySelector('.tabs').addEventListener('keydown', event => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     event.preventDefault();
-    const tabs = ['timeline', 'search', 'today'], index = tabs.indexOf(tab);
-    document.querySelector(`[data-tab="${tabs[(index + (event.key === 'ArrowRight' ? 1 : 2)) % 3]}"]`).click();
+    const tabs = ['timeline', 'search', 'today'].filter(id => !$(`t-${id}`).hidden), index = tabs.indexOf(tab);
+    document.querySelector(`[data-tab="${tabs[(index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]}"]`).click();
   });
   document.addEventListener('click', async event => {
     const chip = event.target.closest('button.chip');
@@ -164,7 +169,7 @@ async function main() {
       && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { event.preventDefault(); $('q').focus(); }
   });
   window.addEventListener('popstate', renderRoute);
-  lastRoute = location.pathname === '/settings' ? '/' : location.pathname + location.search;
+  lastRoute = routePath() === '/settings' ? '/' : routePath() + location.search;
   await renderRoute();
 }
 

@@ -60,11 +60,11 @@ export function createSearch(ctx, { navigate, showTab }) {
 
   function syncSearchMode() {
     const visitor = visitorMode();
-    $('searchForm').hidden = visitor;
+    $('searchForm').hidden = visitor || !ctx.searchEnabled;
     $('searchIntro').hidden = visitor;
     $('exList').hidden = visitor;
     $('filters').hidden = visitor;
-    $('publicSearch').hidden = !visitor;
+    $('publicSearch').hidden = !visitor || !ctx.searchEnabled;
   }
 
   function drawPresetChips() {
@@ -278,7 +278,7 @@ export function createSearch(ctx, { navigate, showTab }) {
       if (visitor) publicIdle(); else idle();
       lastVisitorMode = visitor;
     }
-    if (visitor) void refreshPresets();
+    if (visitor && ctx.searchEnabled) void refreshPresets();
   }
 
   refresh();
