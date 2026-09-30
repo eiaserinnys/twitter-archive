@@ -48,6 +48,7 @@ export interface Env {
   X_USER_ID: string;
   JEV_MONTHLY_USD_CAP: string;
   SOURCE_URL: string;
+  ROBOTS_NOINDEX: string;
   CF_VERSION_METADATA?: { id: string };
   X_BEARER_TOKEN: string;
   DEV_OWNER?: string;

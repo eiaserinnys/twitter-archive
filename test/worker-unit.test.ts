@@ -218,3 +218,45 @@ describe("media route", () => {
     expect(get).toHaveBeenLastCalledWith("media/missing.jpg");
   });
 });
+
+describe("robots policy", () => {
+  function env(robotsNoindex: string) {
+    return {
+      DEV_OWNER: "1",
+      ROBOTS_NOINDEX: robotsNoindex,
+      ASSETS: { fetch: vi.fn(async () => new Response("asset response")) },
+    } as unknown as Env;
+  }
+
+  it("serves a robots.txt block and adds noindex to API and static responses when enabled", async () => {
+    const environment = env("1");
+
+    const robots = await app.request("/robots.txt", {}, environment);
+    expect(robots.status).toBe(200);
+    expect(robots.headers.get("Content-Type")).toMatch(/^text\/plain/i);
+    expect(await robots.text()).toBe("User-agent: *\nDisallow: /\n");
+    expect(robots.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+
+    const api = await app.request("/api/health", {}, environment);
+    expect(api.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+
+    const asset = await app.request("/assets/app.js", {}, environment);
+    expect(await asset.text()).toBe("asset response");
+    expect(asset.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+  });
+
+  it("leaves API and static response headers unchanged when disabled", async () => {
+    const environment = env("");
+
+    const api = await app.request("/api/health", {}, environment);
+    expect(api.headers.get("X-Robots-Tag")).toBeNull();
+
+    const asset = await app.request("/assets/app.js", {}, environment);
+    expect(await asset.text()).toBe("asset response");
+    expect(asset.headers.get("X-Robots-Tag")).toBeNull();
+
+    const robots = await app.request("/robots.txt", {}, environment);
+    expect(await robots.text()).toBe("asset response");
+    expect(robots.headers.get("X-Robots-Tag")).toBeNull();
+  });
+});

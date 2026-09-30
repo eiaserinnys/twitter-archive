@@ -62,7 +62,10 @@ function paintHeader() {
   document.documentElement.classList.toggle('visitor', !context.owner || context.preview);
   $('visitorBar').hidden = !context.preview;
   $('setBtn').hidden = !context.owner || context.preview;
-  $('ownerLinkWrap').hidden = context.owner && !context.preview;
+  const authLink = $('authLink');
+  authLink.hidden = context.preview;
+  authLink.href = context.owner ? '/cdn-cgi/access/logout' : '/owner';
+  authLink.textContent = context.owner ? '로그아웃' : '로그인';
   $('visSwitch').setAttribute('aria-checked', String(context.preview));
   const sourceLink = $('sourceLink');
   sourceLink.hidden = !meta.source_url;
