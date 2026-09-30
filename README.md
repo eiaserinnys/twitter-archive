@@ -175,6 +175,12 @@ Docker 없이 실행하려면 `npm run serve -- --instance my-archive`를 씁니
 | `ROBOTS_NOINDEX` | `1`이면 검색엔진 색인을 막습니다 | 빈 값 |
 | `SOURCE_URL` | 화면 아래 소스 링크. 비우면 표시하지 않습니다 | 이 리포 |
 
+### Umami 분석
+
+인스턴스 `config.json`의 `analytics`에 `umami_script_url`과 `umami_website_id`를 설정하면 됩니다. 두 값이 모두 비어 있지 않을 때만 HTML 페이지에 Umami 스크립트를 넣습니다.
+
+자기 방문을 통계에서 제외하려면 해당 브라우저에서 `localStorage.setItem("umami.disabled", "1")`을 실행하세요.
+
 비밀값은 환경변수로만 넘깁니다. Cloudflare에서는 Worker 비밀값으로, 내 서버에서는 `.env` 파일로 들어갑니다.
 
 | 비밀값 | 뜻 |

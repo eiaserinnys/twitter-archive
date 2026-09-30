@@ -16,6 +16,8 @@ run_worker_first = ["/*", "!/cdn-cgi/access/*"]
 
 [vars]
 BASE_PATH = ""
+UMAMI_SCRIPT_URL = ""
+UMAMI_WEBSITE_ID = ""
 VISITOR_SEARCH = "presets"
 SITE_TITLE = "Tweet Archive"
 ROBOTS_NOINDEX = ""

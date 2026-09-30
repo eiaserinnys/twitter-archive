@@ -37,6 +37,8 @@ export interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   SITE_TITLE: string;
   BASE_PATH: string;
+  UMAMI_SCRIPT_URL?: string;
+  UMAMI_WEBSITE_ID?: string;
   VISITOR_SEARCH: "presets" | "off";
   SEARCH_DAILY_LIMIT: string;
   TYPESAFE_BASE_URL: string;
