@@ -14,6 +14,7 @@ import tweetsRoute from "./routes/tweets.js";
 import topicsRoute from "./routes/topics.js";
 import tagsRoute from "./routes/tags.js";
 import searchRoute from "./routes/search.js";
+import linkPreviewRoute from "./routes/link-preview.js";
 import { handleScheduled } from "./scheduled.js";
 
 const app = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
@@ -32,6 +33,7 @@ app.route("/", tweetsRoute);
 app.route("/", topicsRoute);
 app.route("/", tagsRoute);
 app.route("/", searchRoute);
+app.route("/", linkPreviewRoute);
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
