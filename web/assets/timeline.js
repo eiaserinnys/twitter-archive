@@ -93,6 +93,15 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
   }
 
   function buildGrid(table, rows, rowData, corner, tracks) {
+    const wrap = table.closest('.grid-wrap');
+    let scroll = wrap.querySelector('.grid-scroll');
+    const scrolling = ctx.topics.length > 15;
+    if (scrolling && !scroll) {
+      scroll = el('div', 'grid-scroll'); table.replaceWith(scroll); scroll.append(table);
+    } else if (!scrolling && scroll) scroll.replaceWith(table);
+    table.classList.toggle('scrolling', scrolling);
+    table.style.setProperty('--topic-count', ctx.topics.length);
+    table.style.removeProperty('--tag-w');
     const counts = heatmapTopicCounts(rows.map(rowData), ctx.topics);
     const max = Math.max(0, ...counts);
     const thresholds = heatmapThresholds(counts);
@@ -112,20 +121,20 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
     const first = el('th', 'corner'); first.append(el('span', null, corner)); head.append(first);
     const cells = {};
     ctx.topics.forEach(topic => {
-      const th = el('th'), button = el('button', 'topic-h'); button.type = 'button'; button.dataset.t = topic.id;
+      const th = el('th', topic.builtin ? 'builtin' : null), button = el('button', 'topic-h'); button.type = 'button'; button.dataset.t = topic.id;
       button.title = topic.label; button.setAttribute('aria-label', `${topic.label} 전체`);
       button.append(el('span', null, topic.short)); th.append(button); head.append(th);
     });
     rows.forEach((row, index) => {
       const tr = el('tr'), data = rowData(row);
       if (tracks && index === 0) tr.append(trackCell(tracks, rows));
-      const th = el('th'), rb = el('button', `row-h${data.total ? '' : ' none'}`); rb.type = 'button'; rb.dataset.r = row;
+      const th = el('th', 'row-label'), rb = el('button', `row-h${data.total ? '' : ' none'}`); rb.type = 'button'; rb.dataset.r = row;
       if (corner === '연도') rb.append(el('span', 'yl', row), el('span', 'ys', `’${String(row).slice(2)}`));
       else rb.append(el('span', null, pad(row)));
       rb.setAttribute('aria-label', corner === '연도' ? `${row}년 월 연표 열기` : `${year}년 ${row}월 전체 트윗 ${data.total}개`);
       th.append(rb); tr.append(th); cells[row] = {};
       ctx.topics.forEach(topic => {
-        const td = el('td'), count = data.counts[topic.id] || 0;
+        const td = el('td', topic.builtin ? 'builtin' : null), count = data.counts[topic.id] || 0;
         const cell = el(count ? 'button' : 'span', 'cell', count ? String(count) : '');
         if (count) cell.type = 'button'; else cell.append(el('span', 'sr-only', '트윗 없음'));
         cell.dataset.l = heatmapLevel(count, thresholds); cell.dataset.r = row; cell.dataset.t = topic.id;
