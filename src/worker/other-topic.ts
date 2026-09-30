@@ -1,6 +1,7 @@
 import { TOPIC_SEED } from "../shared/topics.js";
 import type { D1Database } from "./env.js";
-import { publicHiddenSql } from "./visibility.js";
+import type { Viewer } from "./auth.js";
+import { publicHiddenSql, replyScopeSql, type Visibility } from "./visibility.js";
 
 export const OTHER_TOPIC_ID = "other";
 
@@ -37,14 +38,16 @@ export function assignedTweetIdsSql(): string {
 
 // B: use the tweet/topic primary key for calendar days and limited tweet pages.
 // Both shapes exclude public-hidden tweets for owners as well as visitors.
-export function otherTweetSql(alias: string, assignedSet?: string): string {
+export function otherTweetSql(
+  alias: string, viewer: Viewer, replyVisibility: Visibility, assignedSet?: string,
+): string {
   const unassigned = assignedSet
     ? `${alias}.id NOT IN (SELECT tweet_id FROM ${assignedSet})`
     : `NOT EXISTS (
       SELECT 1 FROM scores s JOIN topics tp ON tp.id = s.topic
       WHERE s.tweet_id = ${alias}.id AND ${assignedScoreSql()}
     )`;
-  return `(NOT ${publicHiddenSql(alias)} AND ${unassigned})`;
+  return `(${replyScopeSql(alias, viewer, replyVisibility)} AND NOT ${publicHiddenSql(alias)} AND ${unassigned})`;
 }
 
 export interface OtherCountRow {
@@ -55,9 +58,12 @@ export interface OtherCountRow {
 export async function getOtherCounts(
   db: D1Database,
   period: "year" | "month" | "date_kst",
+  viewer: Viewer,
+  replyVisibility: Visibility,
   year?: number,
   month?: number,
 ): Promise<OtherCountRow[]> {
+  const replies = replyVisibility;
   const aggregateSet = period !== "date_kst";
   const scope = [year === undefined ? "" : "t.year = ?", month === undefined ? "" : "t.month = ?"]
     .filter(Boolean);
@@ -66,7 +72,7 @@ export async function getOtherCounts(
     ${aggregateSet ? `WITH assigned AS MATERIALIZED (${assignedTweetIdsSql()})` : ""}
     SELECT t.${period} AS period, COUNT(*) AS other_count
     FROM tweets t
-    WHERE ${[...scope, otherTweetSql("t", aggregateSet ? "assigned" : undefined)].join(" AND ")}
+    WHERE ${[...scope, otherTweetSql("t", viewer, replies, aggregateSet ? "assigned" : undefined)].join(" AND ")}
     GROUP BY t.${period}
   `).bind(...values).all<OtherCountRow>();
   return result.results;

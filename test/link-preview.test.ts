@@ -209,7 +209,7 @@ describe("GET /api/link-preview", () => {
     expect((await requestPreview(hidden.db, LINK, true)).status).toBe(404);
     expect((await requestPreview(missing.db)).status).toBe(404);
     expect(hidden.reads.filter(({ query }) => /FROM tweets/i.test(query))).toHaveLength(1);
-    expect(hidden.reads[0]?.query).toContain("public_hide_threshold");
+    expect(hidden.reads.find(({ query }) => /FROM tweets/i.test(query))?.query).toContain("public_hide_threshold");
     expect(missing.reads.filter(({ query }) => /FROM tweets/i.test(query))).toHaveLength(1);
     const hostReads = [] as string[];
     for (const url of [

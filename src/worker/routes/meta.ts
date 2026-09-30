@@ -19,7 +19,7 @@ route.get("/api/meta", async (context: AppContext) => {
     viewer.viewingAs,
     async () => {
       const [stats, topics, otherEnabled] = await Promise.all([
-        getTweetStats(context.env.DB, viewer),
+        getTweetStats(context.env.DB, viewer, cacheMeta.reply_visibility),
         listTopicInfo(context.env.DB, viewer),
         isOtherTopicEnabled(context.env.DB),
       ]);
@@ -42,6 +42,7 @@ route.get("/api/meta", async (context: AppContext) => {
       const batchSize = Number(context.env.SCORE_BATCH);
       return {
         ...body,
+        reply_visibility: cacheMeta.reply_visibility,
         public_hidden_count: publicHiddenCount,
         rescore_estimate: {
           tweets: stats.total_tweets,

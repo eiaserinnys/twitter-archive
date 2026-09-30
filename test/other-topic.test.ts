@@ -157,7 +157,7 @@ describe("builtin other classification", () => {
   it("makes A and B return the same synthetic tweet set", async () => {
     const { sqlite } = fixture();
     const { otherTweetSql, assignedTweetIdsSql } = await import("../src/worker/other-topic.js");
-    const query = (membership?: string) => `SELECT t.id FROM tweets t WHERE ${otherTweetSql("t", membership)} ORDER BY t.created_at, t.id`;
+    const query = (membership?: string) => `SELECT t.id FROM tweets t WHERE ${otherTweetSql("t", { owner: true, viewingAs: "owner" }, "hidden", membership)} ORDER BY t.created_at, t.id`;
     const a = sqlite.prepare(`WITH assigned AS MATERIALIZED (${assignedTweetIdsSql()}) ${query("assigned")}`).all();
     const b = sqlite.prepare(query()).all();
     expect(a).toEqual(b);

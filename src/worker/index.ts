@@ -14,6 +14,7 @@ import tweetsRoute from "./routes/tweets.js";
 import topicsRoute from "./routes/topics.js";
 import tagsRoute from "./routes/tags.js";
 import searchRoute from "./routes/search.js";
+import settingsRoute from "./routes/settings.js";
 import linkPreviewRoute from "./routes/link-preview.js";
 import { handleScheduled } from "./scheduled.js";
 
@@ -34,6 +35,7 @@ app.route("/", topicsRoute);
 app.route("/", tagsRoute);
 app.route("/", searchRoute);
 app.route("/", linkPreviewRoute);
+app.route("/", settingsRoute);
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({

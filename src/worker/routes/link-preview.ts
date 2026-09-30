@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { Viewer } from "../auth.js";
 import type { Env } from "../env.js";
-import { publicHiddenSql } from "../visibility.js";
+import { getReplyVisibility } from "../db/meta.js";
+import { publicHiddenSql, replyScopeSql } from "../visibility.js";
 import type { AppContext } from "./helpers.js";
 
 type PreviewStatus = "ok" | "none" | "error";
@@ -31,9 +32,10 @@ route.get("/api/link-preview", async (context: AppContext) => {
   if (!tweetId || !url) return context.json({ error: "not_found" }, 404);
 
   const viewer = context.get("viewer");
+  const replies = await getReplyVisibility(context.env.DB);
   const hiddenFilter = viewer.viewingAs === "visitor" ? `AND NOT ${publicHiddenSql("t")}` : "";
   const tweet = await context.env.DB.prepare(`
-    SELECT t.text FROM tweets t WHERE t.id = ? ${hiddenFilter}
+    SELECT t.text FROM tweets t WHERE t.id = ? AND ${replyScopeSql("t", viewer, replies)} ${hiddenFilter}
   `).bind(tweetId).first<{ text: string }>();
   if (!tweet || !tweet.text.includes(url)) return context.json({ error: "not_found" }, 404);
 

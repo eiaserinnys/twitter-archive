@@ -11,6 +11,12 @@ export function publicHiddenSql(alias: string): string {
 }
 
 export type Visibility = "public" | "owner" | "hidden";
+// Only replies to other people participate; self-reply threads keep their current scope.
+export function replyScopeSql(alias: string, viewer: Viewer, visibility: Visibility): string {
+  const visible = visibility === "public" || (visibility === "owner" && viewer.viewingAs === "owner");
+  return visible ? "1 = 1" : `${alias}.kind != 'reply'`;
+}
+
 export type TagVisibility = "public" | "owner";
 
 export interface TopicVisibilityRow {

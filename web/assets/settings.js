@@ -46,6 +46,16 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     row.append(choices); return row;
   }
 
+  function renderReplies() {
+    $('replyVisibility').replaceChildren(
+      segmented('남에게 단 답글', ctx.meta.reply_visibility, async value => {
+        await write('PUT', '/api/settings/replies', { visibility: value });
+        await refreshData();
+      }),
+      el('p', 'hide-preview', '내 트윗에 이어 단 스레드는 항상 원글처럼 보인다.'),
+    );
+  }
+
   async function patchTopic(topic, change) {
     await write('PATCH', `/api/topics/${encodeURIComponent(topic.id)}`, change);
     await refreshData(); renderTopics();
@@ -350,7 +360,7 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
 
   async function open(editTagId = null, route = true) {
     if (!ctx.owner || ctx.preview) return;
-    renderTopics(); renderTags(); renderSearchPresets();
+    renderReplies(); renderTopics(); renderTags(); renderSearchPresets();
     if (editTagId) { setSection('tags'); openTagForm(ctx.tags.find(tag => tag.id === editTagId)); }
     else { setSection('topics'); closeTopicForm(); closeTagForm(); }
     if (route) navigate('/settings');
@@ -370,5 +380,5 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     setPreview(true); dialog.close(); await onPreview();
   });
   $('visOff').addEventListener('click', async () => { setPreview(false); await onPreview(); });
-  return { open, close, isOpen: () => dialog.open, refresh() { if (dialog.open) { renderTopics(); renderTags(); } } };
+  return { open, close, isOpen: () => dialog.open, refresh() { if (dialog.open) { renderReplies(); renderTopics(); renderTags(); } } };
 }

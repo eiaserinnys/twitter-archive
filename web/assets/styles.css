@@ -804,3 +804,6 @@ button.day[aria-pressed="true"] .dt i { box-shadow: 0 0 0 1.5px var(--on-acid); 
   .yr-n, .empty .zero { color: CanvasText; -webkit-text-stroke: 0; }
   .tab[aria-selected="true"], .ex[aria-pressed="true"], button.day[aria-pressed="true"] { outline: 3px solid Highlight; }
 }
+
+#replyVisibility .vis-row { grid-template-columns: max-content minmax(0, 1fr); gap: calc(var(--pad) / 2); margin: 0; }
+#replyVisibility .fl { font-family: var(--font); font-size: inherit; font-weight: 800; letter-spacing: normal; word-spacing: normal; color: var(--ink); }

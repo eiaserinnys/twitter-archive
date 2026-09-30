@@ -6,7 +6,7 @@ import { getDatesForOnThisDay } from "../db/timeline.js";
 import type { Env } from "../env.js";
 import { serializeTweetRows } from "../db/tweets.js";
 import { listTopicRows } from "../db/topics.js";
-import { bumpDataVersion } from "../db/meta.js";
+import { bumpDataVersion, getReplyVisibility } from "../db/meta.js";
 import { publicHiddenSql, isTopicFilterAllowed } from "../visibility.js";
 import type { AppContext } from "./helpers.js";
 import { invalid, isDate, ownerJsonBody } from "./helpers.js";
@@ -98,7 +98,8 @@ route.get("/api/on-this-day", async (context: AppContext) => {
     return invalid(context, "md must use MM-DD format.");
   }
   const viewer = context.get("viewer");
-  const dates = await getDatesForOnThisDay(context.env.DB, viewer);
+  const replies = await getReplyVisibility(context.env.DB);
+  const dates = await getDatesForOnThisDay(context.env.DB, viewer, replies);
   const [month, day] = md.split("-").map(Number);
   const closestByYear = new Map<number, { date: string; distance_days: number }>();
   for (const candidate of dates) {
@@ -113,7 +114,7 @@ route.get("/api/on-this-day", async (context: AppContext) => {
   const selected = [...closestByYear.entries()]
     .sort(([left], [right]) => right - left)
     .map(([year, value]) => ({ year, ...value }));
-  const rows = await getOnThisDayTweets(context.env.DB, selected.map((entry) => entry.date), viewer);
+  const rows = await getOnThisDayTweets(context.env.DB, selected.map((entry) => entry.date), viewer, replies);
   const serialized = await serializeTweetRows(context.env.DB, rows, viewer);
   const tweetsByDate = new Map<string, typeof serialized>();
   rows.forEach((row, index) => {
