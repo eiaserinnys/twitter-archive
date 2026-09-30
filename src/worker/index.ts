@@ -28,8 +28,8 @@ app.route("/", searchRoute);
 
 app.get("/owner", (context) => context.redirect("/", 302));
 app.get("/media/*", async (context) => {
-  const key = context.req.param("*") ?? "";
-  const object = await context.env.MEDIA.get(key);
+  const key = decodeURIComponent(context.req.path.slice("/media/".length));
+  const object = key ? await context.env.MEDIA.get(key) : null;
   if (!object) return context.json({ error: "not_found" }, 404);
   const headers = new Headers();
   object.writeHttpMetadata(headers);

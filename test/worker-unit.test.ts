@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import { app } from "../src/worker/index.js";
+import type { Env } from "../src/worker/env.js";
 import { getViewer } from "../src/worker/auth.js";
 import {
   filterVisibleTags,
@@ -187,5 +189,32 @@ describe("TweetOut and cursor", () => {
 
     expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(decodeCursor(cursor)).toEqual({ created_at: "2024-05-01T12:30:00.000Z", id: "123" });
+  });
+});
+
+describe("media route", () => {
+  it("serves an existing R2 object and returns 404 for a missing key", async () => {
+    const key = "media/test-media-id/test-image.jpg";
+    const object = {
+      body: new Response("image bytes").body,
+      writeHttpMetadata(headers: Headers) {
+        headers.set("Content-Type", "image/jpeg");
+      },
+    };
+    const get = vi.fn(async (requestedKey: string) => requestedKey === key ? object : null);
+    const env = { DEV_OWNER: "1", MEDIA: { get } } as unknown as Env;
+
+    const response = await app.request(`/media/${key}`, {}, env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    expect(get).toHaveBeenLastCalledWith(key);
+
+    const missing = await app.request("/media/media/missing.jpg", {}, env);
+
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: "not_found" });
+    expect(get).toHaveBeenLastCalledWith("media/missing.jpg");
   });
 });
