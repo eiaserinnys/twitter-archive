@@ -44,6 +44,21 @@ async function ownerTopicInfo(context: AppContext, id: string): Promise<TopicInf
   return getTopicInfo(context.env.DB, id);
 }
 
+route.get("/api/topics/:id/score-histogram", async (context: AppContext) => {
+  const denied = ownerOnly(context);
+  if (denied) return denied;
+  const id = context.req.param("id") ?? "";
+  const topic = await getTopic(context.env.DB, id);
+  if (!topic || !topic.active) return context.json({ error: "not_found" }, 404);
+  const result = await context.env.DB.prepare(`
+    SELECT MIN(19, CAST(score * 20 AS INTEGER)) AS bucket, COUNT(*) AS count
+    FROM scores WHERE topic = ? GROUP BY bucket
+  `).bind(id).all<{ bucket: number; count: number }>();
+  const buckets = Array<number>(20).fill(0);
+  for (const row of result.results) buckets[row.bucket] = row.count;
+  return context.json({ buckets });
+});
+
 route.post("/api/topics", async (context: AppContext) => {
   const parsed = await ownerJsonBody(context);
   if ("response" in parsed) return parsed.response;

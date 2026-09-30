@@ -7,6 +7,7 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
   const dialog = $('settings'), tagForm = $('tagForm'), topicForm = $('topicForm');
   let editingTopic = null, editingTag = null;
   let searchPresets = [], searchPresetError = null;
+  const histograms = new Map();
 
   function estimateText() {
     const value = ctx.meta.rescore_estimate;
@@ -50,6 +51,49 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     await refreshData(); renderTopics();
   }
 
+  function publicHideControl(topic) {
+    const row = el('div', 'public-hide');
+    const line = el('div', 'hide-controls');
+    const toggle = el('button', 'switch'); toggle.type = 'button'; toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-label', `${topic.label} 공개 숨김`); toggle.append(el('i'));
+    const slider = el('input'); slider.type = 'range'; slider.min = '0.30'; slider.max = '0.95'; slider.step = '0.05';
+    slider.setAttribute('aria-label', `${topic.label} 공개 숨김 점수`);
+    const value = el('output', 'mono');
+    const preview = el('p', 'hide-preview'); preview.setAttribute('aria-live', 'polite');
+    let enabled = topic.public_hide_threshold != null;
+    slider.value = String(topic.public_hide_threshold ?? 0.5);
+    function paint(buckets) {
+      toggle.setAttribute('aria-checked', String(enabled)); slider.hidden = value.hidden = !enabled;
+      value.textContent = Number(slider.value).toFixed(2);
+      if (!enabled) { preview.textContent = ''; return; }
+      if (!buckets) { preview.textContent = '점수 분포를 불러오는 중…'; return; }
+      const count = buckets.slice(Math.round(Number(slider.value) * 20)).reduce((sum, n) => sum + n, 0);
+      const percent = ctx.meta.total_tweets ? count / ctx.meta.total_tweets * 100 : 0;
+      preview.textContent = `이 주제 점수 ${value.textContent} 이상 ${count.toLocaleString('ko-KR')}개 (전체의 ${percent.toFixed(1)}%)`;
+    }
+    let buckets;
+    async function loadHistogram() {
+      if (!histograms.has(topic.id)) histograms.set(topic.id, get(`/api/topics/${encodeURIComponent(topic.id)}/score-histogram`));
+      try {
+        buckets = (await histograms.get(topic.id)).buckets; paint(buckets);
+      } catch (error) { preview.textContent = error.message; }
+    }
+    for (const control of [toggle, slider]) {
+      control.addEventListener('focus', loadHistogram);
+      control.addEventListener('pointerdown', loadHistogram);
+    }
+    toggle.addEventListener('click', async () => {
+      enabled = !enabled; if (enabled) slider.value = '0.50';
+      paint(buckets); void loadHistogram();
+      await patchTopic(topic, { public_hide_threshold: enabled ? Number(slider.value) : null });
+    });
+    slider.addEventListener('input', () => paint(buckets));
+    slider.addEventListener('change', () => patchTopic(topic, { public_hide_threshold: Number(slider.value) }));
+    line.append(el('span', null, '공개 숨김'), toggle, slider, value); row.append(line, preview);
+    paint(); if (enabled) void loadHistogram();
+    return row;
+  }
+
   function renderTopics() {
     const fragment = document.createDocumentFragment();
     ctx.meta.topics.forEach(topic => {
@@ -70,11 +114,9 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
       });
       actions.append(edit, remove); head.append(actions); row.append(head);
       row.append(el('p', 'prompt', topic.question || ''));
-      if (topic.public_hide_threshold !== undefined && topic.public_hide_threshold !== null) {
-        row.append(el('p', 'hide-threshold', `공개 버전 숨김 점수 ${topic.public_hide_threshold}`));
-      }
       row.append(segmented('연표', topic.timeline_visibility, value => patchTopic(topic, { timeline_visibility: value })));
       row.append(segmented('검색', topic.search_visibility, value => patchTopic(topic, { search_visibility: value })));
+      row.append(publicHideControl(topic));
       const scored = topic.scored || 0, total = ctx.meta.total_tweets;
       row.append(el('p', `st${scored < total ? ' wait' : ''}`, `채점 ${scored >= total ? '완료' : '대기'} ${scored}/${total}`));
       fragment.append(row);
@@ -88,7 +130,6 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     editingTopic = topic?.id || null;
     $('tpTitle').textContent = topic ? '주제 수정' : '새 주제';
     $('tpName').value = topic?.label || ''; $('tpPrompt').value = topic?.question || '';
-    $('tpHide').value = topic?.public_hide_threshold ?? '';
     $('tpErr').hidden = true; topicForm.hidden = false;
     requestAnimationFrame(() => { topicForm.scrollIntoView({ block: 'start' }); $('tpName').focus({ preventScroll: true }); });
   }
@@ -100,19 +141,13 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     const label = $('tpName').value.trim(), question = $('tpPrompt').value.trim();
     const fail = message => { $('tpErr').textContent = message; $('tpErr').hidden = false; };
     if (!label || !question) { fail('이름과 문구를 모두 적어 주세요.'); return; }
-    const rawHide = $('tpHide').value.trim();
-    const public_hide_threshold = rawHide === '' ? null : Number(rawHide);
-    if (public_hide_threshold !== null
-      && (!Number.isFinite(public_hide_threshold) || public_hide_threshold < 0 || public_hide_threshold > 1)) {
-      fail('공개 숨김 점수는 비우거나 0부터 1 사이로 입력해 주세요.'); return;
-    }
     const previous = ctx.meta.topics.find(topic => topic.id === editingTopic);
     if (!previous) {
       if (!await confirmBox(`‘${label}’ 주제를 추가할까요?`, estimateText(), '추가하고 채점')) return;
-      await write('POST', '/api/topics', { label, question, timeline_visibility: 'public', search_visibility: 'public', public_hide_threshold });
+      await write('POST', '/api/topics', { label, question, timeline_visibility: 'public', search_visibility: 'public', public_hide_threshold: null });
     } else {
       if (question !== previous.question && !await confirmBox(`‘${label}’ 문구를 바꿀까요?`, estimateText(), '바꾸고 다시 채점')) return;
-      await write('PATCH', `/api/topics/${encodeURIComponent(previous.id)}`, { label, question, public_hide_threshold });
+      await write('PATCH', `/api/topics/${encodeURIComponent(previous.id)}`, { label, question });
     }
     closeTopicForm(); await refreshData(); renderTopics();
   });
@@ -310,6 +345,7 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
   $('setClose').addEventListener('click', close);
   dialog.addEventListener('click', event => { if (event.target === dialog) close(); });
   dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
+  dialog.addEventListener('close', () => histograms.clear());
   $('stTopics').addEventListener('click', () => setSection('topics'));
   $('stTags').addEventListener('click', () => setSection('tags'));
   $('stSearchPresets').addEventListener('click', () => setSection('searchPresets'));

@@ -210,6 +210,15 @@ createServer(async (req, res) => {
       return json(res, { error: 'not_found' }, 404);
     }
     if (req.method !== 'GET' && !owner) return json(res, { error: 'owner_only' }, 403);
+    const histogramMatch = path.match(/^\/api\/topics\/([^/]+)\/score-histogram$/);
+    if (histogramMatch && req.method === 'GET') {
+      if (!owner) return json(res, { error: 'owner_only' }, 403);
+      const id = histogramMatch[1];
+      if (!topics.some(topic => topic.id === id)) return json(res, { error: 'not_found' }, 404);
+      const buckets = Array(20).fill(0);
+      for (const values of scores.values()) if (values[id] !== undefined) buckets[Math.min(19, Math.floor(values[id] * 20))]++;
+      return json(res, { buckets });
+    }
     if (path === '/api/topics' && req.method === 'POST') {
       const input = await body(req);
       if (input.public_hide_threshold !== undefined && !(input.public_hide_threshold === null || (typeof input.public_hide_threshold === 'number' && input.public_hide_threshold >= 0 && input.public_hide_threshold <= 1)))
