@@ -105,6 +105,7 @@ export interface LoadD1Options {
   dataDir: string;
   mode: "local" | "remote";
   topics?: TopicSeedConfig;
+  wranglerConfig?: string;
 }
 
 export async function loadD1(options: LoadD1Options): Promise<{ tweets: number; scores: number; media: number; topics: number }> {
@@ -121,7 +122,8 @@ export async function loadD1(options: LoadD1Options): Promise<{ tweets: number; 
   const sqlPath = resolve(dataDir, "load-d1.sql");
   await writeFile(sqlPath, buildSql(tweets, scores, topicSeed), "utf8");
   const repoRoot = fileURLToPath(new URL("../", import.meta.url));
-  execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--file", sqlPath, `--${options.mode}`], {
+  execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--file", sqlPath, `--${options.mode}`,
+    ...(options.wranglerConfig ? ["--config", options.wranglerConfig] : [])], {
     cwd: repoRoot,
     stdio: "inherit",
   });
@@ -139,11 +141,13 @@ async function main(): Promise<void> {
     local: { type: "boolean" },
     remote: { type: "boolean" },
     topics: { type: "string" },
+    "wrangler-config": { type: "string" },
   });
   const mode = selectedMode(args.local as boolean | undefined, args.remote as boolean | undefined);
   const result = await loadD1({
     dataDir: typeof args["data-dir"] === "string" ? args["data-dir"] : "./data",
     mode,
+    wranglerConfig: typeof args["wrangler-config"] === "string" ? args["wrangler-config"] : undefined,
     topics: await readTopicSeed(typeof args.topics === "string" ? args.topics : undefined),
   });
   console.log(`Loaded ${result.tweets} tweets, ${result.scores} score rows, ${result.media} media rows, and ${result.topics} topic seeds (${mode}).`);
