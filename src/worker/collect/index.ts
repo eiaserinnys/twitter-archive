@@ -2,7 +2,7 @@ import type { NormalizedTweet } from "../../shared/types.js";
 import type { D1PreparedStatement, Env } from "../env.js";
 import { dataVersionStatement } from "../db/meta.js";
 import { normalizeV2Response, type NormalizedV2Tweet } from "./normalize-v2.js";
-import { mediaExtension, uploadArticleCover } from "./media.js";
+import { mediaBody, mediaExtension, uploadArticleCover } from "./media.js";
 
 const PAGE_LIMIT = 32;
 const PAGE_SIZE = 100;
@@ -55,7 +55,7 @@ async function uploadTweetMedia(env: Env, item: NormalizedV2Tweet, fetchImpl: ty
     try {
       const response = await fetchImpl(upload.url);
       if (!response.ok) throw new Error(`Media HTTP ${response.status}`);
-      const body = await response.arrayBuffer();
+      const body = await mediaBody(response);
       await env.MEDIA.put(key, body, {
         httpMetadata: { contentType: upload.contentType ?? response.headers.get("content-type") ?? "application/octet-stream" },
       });

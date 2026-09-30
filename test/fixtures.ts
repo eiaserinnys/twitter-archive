@@ -132,6 +132,7 @@ export function syntheticArchiveFiles(): Map<string, Uint8Array> {
     ["data/tweets_media/101-photo.jpg", strToU8("synthetic-photo-1")],
     ["data/tweets_media/107-photo107.jpg", strToU8("synthetic-photo-2")],
     ["data/tweets_media/108-video108.jpg", strToU8("synthetic-video-thumbnail")],
+    ["data/tweets_media/108-108.mp4", strToU8("synthetic-video-bytes")],
   ]);
 }
 

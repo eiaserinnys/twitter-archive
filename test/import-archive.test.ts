@@ -40,7 +40,7 @@ describe("archive normalization", () => {
     });
     expect(rows.find((row) => row.id === "108")?.media[0]).toMatchObject({
       type: "video",
-      archive_path: "data/tweets_media/108-video108.jpg",
+      archive_path: "data/tweets_media/108-108.mp4",
     });
   });
 });

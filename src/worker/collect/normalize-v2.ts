@@ -1,6 +1,7 @@
 import type { NormalizedTweet, TweetContext, TweetKind, TweetMedia, MediaType } from "../../shared/types.js";
 import { normalizeTweetText, tweetTextUrlEntities, type TweetUrlEntity } from "../../shared/tweet-text.js";
 import { articleCoverUrl } from "./media.js";
+import { highestBitrateMp4 } from "../../shared/video-variant.js";
 
 interface RawRecord {
   [key: string]: unknown;
@@ -62,11 +63,8 @@ function uploadFor(media: RawRecord, type: MediaType): MediaUpload {
     const url = stringValue(media.url) ?? null;
     return { url, contentType: url ? photoContentType(url) : null };
   }
-  const variant = records(media.variants)
-    .filter((item) => item.content_type === "video/mp4" && stringValue(item.url))
-    .sort((left, right) => Number(left.bit_rate ?? 0) - Number(right.bit_rate ?? 0))
-    .at(-1);
-  return variant ? { url: stringValue(variant.url) ?? null, contentType: "video/mp4" } : { url: null, contentType: null };
+  const url = highestBitrateMp4(media.variants);
+  return { url, contentType: url ? "video/mp4" : null };
 }
 
 function createdAtFields(value: unknown): Pick<NormalizedTweet, "created_at_utc" | "date_kst" | "year" | "month"> {

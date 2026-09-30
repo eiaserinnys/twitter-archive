@@ -89,19 +89,23 @@ export async function readArchiveMember(archivePath: string, memberName: string)
   return (await extractZipMembers(absolutePath, (name) => name === relativeName)).get(relativeName);
 }
 
-export async function extractArchiveMembers(archivePath: string, destinations: Map<string, string>): Promise<void> {
+export async function extractArchiveMembers(archivePath: string, destinations: Map<string, string>, options: { skipMissing?: boolean } = {}): Promise<string[]> {
   const absolutePath = resolve(archivePath);
   const normalizedDestinations = new Map([...destinations].map(([name, destination]) => [archiveMemberName(name), resolve(destination)]));
-  if (normalizedDestinations.size === 0) return;
+  if (normalizedDestinations.size === 0) return [];
 
   if ((await stat(absolutePath)).isDirectory()) {
+    const missing: string[] = [];
     for (const [name, destination] of normalizedDestinations) {
       const content = await readArchiveMember(absolutePath, name);
-      if (!content) throw new Error(`Archive media file is missing: ${name}`);
+      if (!content) {
+        if (!options.skipMissing) throw new Error(`Archive media file is missing: ${name}`);
+        missing.push(name); continue;
+      }
       await mkdir(dirname(destination), { recursive: true });
       await writeFile(destination, content);
     }
-    return;
+    return missing;
   }
 
   const found = new Set<string>();
@@ -166,6 +170,7 @@ export async function extractArchiveMembers(archivePath: string, destinations: M
     });
   });
 
-  const missing = [...normalizedDestinations.keys()].find((name) => !found.has(name));
-  if (missing) throw new Error(`Archive media file is missing: ${missing}`);
+  const missing = [...normalizedDestinations.keys()].filter((name) => !found.has(name));
+  if (missing.length && !options.skipMissing) throw new Error(`Archive media file is missing: ${missing[0]}`);
+  return missing;
 }

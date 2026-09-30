@@ -1,7 +1,8 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { R2Bucket } from "../worker/env.js";
 
 export function safePath(root: string, key: string): string | null {
@@ -25,17 +26,30 @@ async function fileBody(path: string): Promise<ReadableStream<Uint8Array> | null
 }
 export function createMediaBucket(root: string): R2Bucket {
   return {
-    async get(key) {
+    async get(key, options) {
       const path = safePath(root, key); if (!path) return null;
-      const body = await fileBody(path); if (!body) return null;
-      return { body, httpMetadata: { contentType: contentType(path) },
+      let info;
+      try { info = await stat(path); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR") return null; throw error; }
+      if (!info.isFile()) return null;
+      const size = info.size;
+      const requested = options?.range;
+      const offset = requested?.suffix === undefined ? requested?.offset ?? 0 : Math.max(0, size - requested.suffix);
+      const length = Math.min(requested?.length ?? size - offset, size - offset);
+      if (requested && (offset >= size || length <= 0)) throw new Error("R2 GET failed: (10039) The requested range is not satisfiable");
+      const range = requested ? { offset, length } : undefined;
+      const body = Readable.toWeb(createReadStream(path, range ? { start: offset, end: offset + length - 1 } : undefined)) as ReadableStream<Uint8Array>;
+      return { body, size, range, httpMetadata: { contentType: contentType(path) },
         writeHttpMetadata(headers) { headers.set("Content-Type", contentType(path)); } };
     },
     async put(key, value) {
       const path = safePath(root, key); if (!path) throw new Error("Media key escapes media directory.");
       await mkdir(dirname(path), { recursive: true });
-      const body = typeof value === "string" ? value : value instanceof ReadableStream
-        ? Buffer.from(await new Response(value).arrayBuffer()) : ArrayBuffer.isView(value)
+      if (value instanceof ReadableStream) {
+        await pipeline(Readable.fromWeb(value as unknown as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(path));
+        return;
+      }
+      const body = typeof value === "string" ? value : ArrayBuffer.isView(value)
         ? Buffer.from(value.buffer, value.byteOffset, value.byteLength) : Buffer.from(value);
       await writeFile(path, body);
     },

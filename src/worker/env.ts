@@ -16,14 +16,18 @@ export interface D1Database {
   batch?(statements: D1PreparedStatement[]): Promise<D1Result<Record<string, unknown>>[]>;
 }
 
+export interface R2Range { offset?: number; length?: number; suffix?: number }
+
 export interface R2ObjectBody {
   body: ReadableStream<Uint8Array> | null;
+  size?: number;
+  range?: R2Range;
   httpMetadata?: { contentType?: string };
   writeHttpMetadata(headers: Headers): void;
 }
 
 export interface R2Bucket {
-  get(key: string): Promise<R2ObjectBody | null>;
+  get(key: string, options?: { range?: R2Range }): Promise<R2ObjectBody | null>;
   put(
     key: string,
     value: ArrayBuffer | ArrayBufferView | ReadableStream<Uint8Array> | string,

@@ -166,12 +166,20 @@ export function tweetCard(tweet, ctx, { why, selectedTopic } = {}) {
   if (media.length) {
     const box = el('div', `tw-media n${media.length}`);
     media.forEach((entry, index) => {
+      if (entry.type === 'video' || entry.type === 'animated_gif') {
+        const cell = el('div', 'tw-media-cell'), video = el('video');
+        video.playsInline = true; video.src = `${withBase(entry.url)}#t=0.001`;
+        video.setAttribute('aria-label', entry.alt || `첨부 ${entry.type === 'video' ? '영상' : 'GIF'} ${index + 1}`);
+        if (entry.type === 'video') { video.controls = true; video.preload = 'metadata'; }
+        else { video.autoplay = true; video.loop = true; video.muted = true; }
+        video.addEventListener('error', () => { video.remove(); cell.classList.add('broken'); }, { once: true });
+        cell.append(video); box.append(cell); return;
+      }
       const a = el('a'); a.href = tweet.x_url; a.target = '_blank'; a.rel = 'noopener noreferrer';
       a.setAttribute('aria-label', `첨부 미디어 ${index + 1}, X에서 보기`);
       const img = el('img'); img.alt = entry.alt || ''; img.loading = 'lazy'; img.src = withBase(entry.url);
       img.addEventListener('error', () => { img.remove(); a.classList.add('broken'); }, { once: true });
       a.append(img);
-      if (entry.type !== 'photo') a.append(el('span', 'play', entry.type === 'video' ? 'VIDEO' : 'GIF'));
       box.append(a);
     });
     article.append(box);
