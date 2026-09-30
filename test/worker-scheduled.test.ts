@@ -4,6 +4,7 @@ import { collectNewTweets } from "../src/worker/collect/index.js";
 import { buildJevRequest, canReserveJevSpend } from "../src/worker/score-queue.js";
 import type { Env } from "../src/worker/env.js";
 import type { NormalizedTweet } from "../src/shared/types.js";
+import { baseTestEnv, createD1TestDatabase } from "./d1-test-db.js";
 
 const v2Response = {
   data: [
@@ -118,6 +119,7 @@ describe("X API v2 collection normalization", () => {
         { type: "video", width: 1280, height: 720, r2_key: null },
       ],
     });
+    expect(rows[1].tweet).toMatchObject({ article_title: "", article_text: "" });
     expect(rows[0].mediaUploads).toEqual([
       { url: "https://pbs.twimg.com/media/photo.jpg?format=jpg&name=large", contentType: "image/jpeg" },
       { url: "https://video.test/high.mp4", contentType: "video/mp4" },
@@ -129,6 +131,28 @@ describe("X API v2 collection normalization", () => {
 });
 
 describe("initial X collection", () => {
+  it("stores checked ordinary tweets with empty article fields", async () => {
+    const { db, sqlite } = createD1TestDatabase();
+    const fetchImpl: typeof fetch = async () => Response.json({
+      data: [{
+        id: "1101",
+        author_id: "self",
+        created_at: "2026-09-30T00:00:00.000Z",
+        text: "A synthetic ordinary post",
+      }],
+      meta: {},
+    });
+
+    try {
+      await collectNewTweets(baseTestEnv(db, { X_USER_ID: "self" }), fetchImpl);
+
+      expect(sqlite.prepare("SELECT article_title, article_text FROM tweets WHERE id = '1101'").get())
+        .toEqual({ article_title: "", article_text: "" });
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("follows multiple pages when no cursor exists", async () => {
     const statement = {
       bind() { return statement; },

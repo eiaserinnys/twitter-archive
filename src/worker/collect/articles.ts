@@ -25,7 +25,7 @@ export async function backfillArticles(env: Env, fetchImpl: typeof fetch = fetch
 
   const candidates = await env.DB.prepare(`
     SELECT id FROM tweets
-    WHERE article_title IS NULL AND text LIKE '%x.com/i/article/%'
+    WHERE article_title IS NULL
     ORDER BY created_at, id
     LIMIT 100
   `).all<ArticleCandidate>();

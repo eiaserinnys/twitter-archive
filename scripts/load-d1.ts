@@ -62,6 +62,7 @@ export function buildSql(tweets: NormalizedTweet[], scores: ScoreRow[], topicSee
     tweet.month,
     tweet.kind,
     tweet.text,
+    tweet.text.toLowerCase().includes("x.com/i/article/") ? null : "",
     tweet.parent?.id,
     tweet.parent?.text || null,
     tweet.parent?.author || null,
@@ -72,7 +73,7 @@ export function buildSql(tweets: NormalizedTweet[], scores: ScoreRow[], topicSee
   ]);
   statements.push(...insertStatements("tweets", [
     "id", "created_at", "date_kst", "year", "month", "kind", "text",
-    "parent_id", "parent_text", "parent_author", "quoted_id", "quoted_text", "lang", "source",
+    "article_title", "parent_id", "parent_text", "parent_author", "quoted_id", "quoted_text", "lang", "source",
   ], tweetRows, "ON CONFLICT(id) DO UPDATE SET " + [
     "created_at", "date_kst", "year", "month", "kind", "text", "parent_id", "parent_text",
     "parent_author", "quoted_id", "quoted_text", "lang", "source",
