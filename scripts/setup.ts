@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readArchiveMember } from "../src/archive/archive-reader.js";
 import { isDirectExecution, parseCliArgs, reportCliError, requiredString } from "./lib/cli.js";
-import { buildWranglerConfig, parse, parseAccountId, readInstanceConfig, SECRET_NAMES, stringify } from "./lib/setup/config.js";
+import { buildWranglerConfig, parse, readInstanceConfig, SECRET_NAMES, stringify } from "./lib/setup/config.js";
 import { configureAccess, ensureResources, findZone } from "./lib/setup/cloudflare.js";
+import { setupNode } from "./lib/setup/node.js";
+import { resolveXUserId } from "./lib/setup/account.js";
 import { SetupRuntime } from "./lib/setup/runtime.js";
 
 export async function setup(args: string[], env: NodeJS.ProcessEnv): Promise<void> {
@@ -23,6 +24,10 @@ export async function setup(args: string[], env: NodeJS.ProcessEnv): Promise<voi
   const instance = readInstanceConfig(JSON.parse(await readFile(resolve(instanceDir, "config.json"), "utf8")));
   const template = parse(await readFile(resolve(repoRoot, "wrangler.toml"), "utf8"));
   const runtime = new SetupRuntime(repoRoot, dryRun, env);
+  if (instance.target === "node") {
+    await setupNode(runtime, instanceName, instance, template.vars as Record<string, string>);
+    return;
+  }
   if (!local) {
     for (const key of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
       if (!env[key]) throw new Error(key + " is required for API token authentication.");
@@ -53,22 +58,7 @@ export async function setup(args: string[], env: NodeJS.ProcessEnv): Promise<voi
   await writeConfig();
   await runtime.wrangler(["d1", "migrations", "apply", "DB", mode, ...configArgs], { mutate: true });
   if (!vars.X_USER_ID) {
-    if (archive) {
-      const account = await readArchiveMember(archive, "data/account.js");
-      if (!account) throw new Error("Archive is missing data/account.js.");
-      vars.X_USER_ID = parseAccountId(account);
-    } else if (env.X_BEARER_TOKEN && vars.ACCOUNT_HANDLE) {
-      if (dryRun) console.log("Plan: resolve X_USER_ID via GET /2/users/by/username/" + vars.ACCOUNT_HANDLE.replace(/^@/, ""));
-      else {
-        const response = await fetch("https://api.x.com/2/users/by/username/" + encodeURIComponent(vars.ACCOUNT_HANDLE.replace(/^@/, "")), {
-          headers: { authorization: "Bearer " + env.X_BEARER_TOKEN },
-        });
-        if (!response.ok) throw new Error("X user lookup failed (HTTP " + response.status + ").");
-        const result = await response.json() as { data?: { id?: string } };
-        if (!result.data?.id) throw new Error("X user lookup returned no user ID.");
-        vars.X_USER_ID = result.data.id;
-      }
-    } else console.warn("Warning: X_USER_ID unresolved; automatic collection is disabled. Provide an archive or X_BEARER_TOKEN.");
+    await resolveXUserId(vars, archive, env, dryRun);
     await writeConfig();
   }
   const script = async (name: string, extra: string[]) => {

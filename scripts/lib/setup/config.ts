@@ -4,6 +4,7 @@ export const SECRET_NAMES = ["X_BEARER_TOKEN", "TYPESAFE_BASE_URL", "TYPESAFE_AP
 
 export interface InstanceConfig {
   worker_name: string;
+  target?: "cloudflare" | "node";
   d1_name?: string;
   r2_bucket?: string;
   domain?: { hostname: string; path?: string };
@@ -21,8 +22,11 @@ export function readInstanceConfig(value: unknown): InstanceConfig {
     throw new Error("config.json requires worker_name.");
   }
   const config = value as InstanceConfig;
+  if (config.target !== undefined && config.target !== "cloudflare" && config.target !== "node") {
+    throw new Error("target must be cloudflare or node.");
+  }
   if (config.vars && Object.keys(config.vars).some((name) =>
-    [...SECRET_NAMES, "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"].includes(name as typeof SECRET_NAMES[number]))) {
+    [...SECRET_NAMES, "OWNER_PASSWORD", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"].includes(name as typeof SECRET_NAMES[number]))) {
     throw new Error("Supply credentials through environment variables, never config.json vars.");
   }
   if (config.domain?.path && (!config.domain.path.startsWith("/") || config.domain.path.endsWith("/"))) {

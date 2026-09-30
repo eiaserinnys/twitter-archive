@@ -1,0 +1,9 @@
+services:
+  archive:
+    build: .
+    env_file: instances/${INSTANCE}/.env
+    volumes:
+      - ./instances/${INSTANCE}/runtime:/data
+    ports:
+      - "127.0.0.1:${PORT:-8787}:8787"
+    restart: unless-stopped
