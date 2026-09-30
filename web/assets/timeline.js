@@ -1,9 +1,15 @@
 import { get, ApiError } from './api.js';
-import { heatmapLevel } from './heatmap.js';
+import { heatmapLevel, heatmapThresholds } from './heatmap.js';
 import { $, el, pad, dateMs, dimOf, tagKinds, tagKind, tagTopics, tagSpan, periodText, lockIcon, tweetCard } from './dom.js';
 
 const desktop = matchMedia('(min-width: 1080px)');
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
+export const heatmapLegendLabels = (thresholds, max) => {
+  const [t1, t2, t3, t4] = thresholds;
+  const range = (from, to) => from > to ? '–' : from === to ? String(from) : `${from}~${to}`;
+  return ['0', range(1, t1), range(t1 + 1, t2), range(t2 + 1, t3), range(t3 + 1, t4), range(t4 + 1, max)];
+};
 
 export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
   const allGrid = $('grid'), monthGrid = $('mgrid'), panel = $('panel'), scrim = $('scrim');
@@ -87,13 +93,14 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
   }
 
   function buildGrid(table, rows, rowData, corner, tracks) {
-    const max = Math.max(0, ...rows.flatMap(row => ctx.topics.map(topic => rowData(row).counts[topic.id] || 0)));
+    const counts = rows.flatMap(row => ctx.topics.map(topic => rowData(row).counts[topic.id] || 0)).filter(count => count > 0);
+    const max = Math.max(0, ...counts);
+    const thresholds = heatmapThresholds(counts);
     const legend = table.closest('.grid-wrap').parentElement.querySelector('.legend');
     const ramp = legend.querySelector('.ramp');
-    ramp.replaceChildren(...['0', '~20%', '~40%', '~60%', '~80%', '~100%'].map((label, index) => {
+    ramp.replaceChildren(...heatmapLegendLabels(thresholds, max).map((label, index) => {
       const item = el('li', null, label); item.dataset.l = index; return item;
     }));
-    legend.querySelector('.heatmap-max').textContent = `최대 ${max}개 기준`;
     const cols = table.querySelector('colgroup'), head = table.tHead.rows[0], body = table.tBodies[0];
     cols.replaceChildren(); head.replaceChildren(); body.replaceChildren();
     if (tracks) {
@@ -121,7 +128,7 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
         const td = el('td'), count = data.counts[topic.id] || 0;
         const cell = el(count ? 'button' : 'span', 'cell', count ? String(count) : '');
         if (count) cell.type = 'button'; else cell.append(el('span', 'sr-only', '트윗 없음'));
-        cell.dataset.l = heatmapLevel(count, max); cell.dataset.r = row; cell.dataset.t = topic.id;
+        cell.dataset.l = heatmapLevel(count, thresholds); cell.dataset.r = row; cell.dataset.t = topic.id;
         cell.setAttribute('aria-label', `${row}${corner === '월' ? '월' : '년'} ${topic.label} ${count}개`);
         td.append(cell); tr.append(td); cells[row][topic.id] = cell;
       });
