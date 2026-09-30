@@ -5,3 +5,5 @@ data/
 .env*
 .dev.vars
 wrangler.local.toml
+instances/
+wrangler.*.toml

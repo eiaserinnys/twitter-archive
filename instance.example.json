@@ -1,0 +1,23 @@
+{
+  "worker_name": "your-archive",
+  "d1_name": "your-archive",
+  "r2_bucket": "your-archive-media",
+  "domain": {
+    "hostname": "archive.example.com",
+    "path": ""
+  },
+  "vars": {
+    "SITE_TITLE": "Your Tweet Archive",
+    "ACCOUNT_HANDLE": "your_handle",
+    "OWNER_EMAILS": "you@example.com",
+    "X_USER_ID": "",
+    "VISITOR_SEARCH": "presets"
+  },
+  "archive": "path/to/your-archive.zip",
+  "topics": "src/shared/topics.json",
+  "fetch_context_max_usd": 0,
+  "score_max_usd": 0,
+  "access": {
+    "policy_ids": []
+  }
+}

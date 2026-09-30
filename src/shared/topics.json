@@ -13,7 +13,7 @@
     { "id": "books", "label": "책", "question": "책, 독서, 소설" },
     { "id": "music", "label": "음악", "question": "음악, 노래, 가수, 공연" },
     { "id": "tech", "label": "AI와 기술", "question": "AI, 프로그래밍, IT 기술과 기기" },
-    { "id": "sensitive", "label": "민감", "question": "정치적이거나 사회적으로 논쟁을 부를 수 있는 주장이나 의견", "timeline_visibility": "owner", "search_visibility": "owner", "public_hide_threshold": 0.5 },
+    { "id": "sensitive", "label": "민감", "question": "정치적이거나 사회적으로 논쟁을 부를 수 있는 주장이나 의견", "timeline_visibility": "hidden", "search_visibility": "owner", "public_hide_threshold": 0.5 },
     { "id": "family", "label": "가족", "question": "작성자 본인의 가족(배우자, 아이, 부모)" },
     { "id": "personal", "label": "개인사", "question": "작성자 개인의 생활과 심경(이사, 건강, 하루 일과, 기분, 넋두리)" },
     { "id": "creation", "label": "창작", "question": "작성자가 직접 이야기, 캐릭터, 세계관, 글, 그림을 만들거나 만드는 법" },

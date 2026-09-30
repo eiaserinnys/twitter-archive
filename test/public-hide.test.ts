@@ -184,7 +184,7 @@ describe("public hide query paths", () => {
     expect(TOPIC_SEED.topics.find(({ id }) => id === "sensitive")).toMatchObject({
       label: "민감",
       question: "정치적이거나 사회적으로 논쟁을 부를 수 있는 주장이나 의견",
-      timeline_visibility: "owner",
+      timeline_visibility: "hidden",
       search_visibility: "owner",
       public_hide_threshold: 0.5,
     });
@@ -192,6 +192,6 @@ describe("public hide query paths", () => {
       .every((topic) => topic.public_hide_threshold === undefined)).toBe(true);
     const seedSql = buildSql([], [], TOPIC_SEED);
     expect(seedSql).toContain("public_hide_threshold");
-    expect(seedSql).toContain("'owner', 'owner', 0.5");
+    expect(seedSql).toContain("'hidden', 'owner', 0.5");
   });
 });
