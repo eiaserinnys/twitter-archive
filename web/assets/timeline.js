@@ -1,5 +1,5 @@
 import { get, ApiError } from './api.js';
-import { heatmapLevel, heatmapThresholds } from './heatmap.js';
+import { heatmapLevel, heatmapThresholds, heatmapTopicCounts } from './heatmap.js';
 import { $, el, pad, dateMs, dimOf, tagKinds, tagKind, tagTopics, tagSpan, periodText, lockIcon, tweetCard } from './dom.js';
 
 const desktop = matchMedia('(min-width: 1080px)');
@@ -93,7 +93,7 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
   }
 
   function buildGrid(table, rows, rowData, corner, tracks) {
-    const counts = rows.flatMap(row => ctx.topics.map(topic => rowData(row).counts[topic.id] || 0)).filter(count => count > 0);
+    const counts = heatmapTopicCounts(rows.map(rowData), ctx.topics);
     const max = Math.max(0, ...counts);
     const thresholds = heatmapThresholds(counts);
     const legend = table.closest('.grid-wrap').parentElement.querySelector('.legend');
@@ -171,7 +171,7 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
     const tracks = track(ctx.timeline.tags.long, years(), ctx.timeline.tags.short_counts);
     gridAll = buildGrid(allGrid, years(), year => rows.find(row => row.year === year), '연도', tracks);
     renderStrip($('allTags'), tracks, 'all');
-    $('tlFoot').textContent = `칸 숫자는 주제 점수 ${ctx.meta.thresholds.display} 이상인 트윗 수입니다. 한 트윗은 여러 주제에 들 수 있습니다.`;
+    $('tlFoot').textContent = `칸 숫자는 주제 점수 ${ctx.meta.thresholds.display} 이상인 트윗 수입니다. 한 트윗은 여러 주제에 들 수 있습니다.${ctx.topics.some(topic => topic.builtin) ? ' 기타는 다른 활성 주제에 들지 않고 공개 숨김도 아닌 트윗입니다.' : ''}`;
     paintGrid();
   }
 

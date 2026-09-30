@@ -22,6 +22,7 @@ export interface TopicInfo {
   version: string;
   sort_order: number;
   scored?: number;
+  builtin?: boolean;
 }
 
 export async function getTopicInfo(db: D1Database, id: string): Promise<TopicInfo | null> {

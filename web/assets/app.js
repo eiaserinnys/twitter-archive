@@ -1,6 +1,6 @@
 import { get, isPreview } from './api.js';
 import { basePath, withBase } from './base-path.js';
-import { $, topicColors, shortOf } from './dom.js';
+import { $, orderTopics, topicColor, shortOf } from './dom.js';
 import { createTimeline } from './timeline.js';
 import { createToday } from './today.js';
 import { createSearch } from './search.js';
@@ -100,8 +100,8 @@ async function loadData() {
   context.logoutUrl = me.logout_url;
   context.preview = isPreview();
   context.meta = meta; context.timeline = timelineData; context.tags = tags.tags;
-  const ordered = meta.topics.slice().sort((a, b) => a.sort_order - b.sort_order);
-  const enriched = ordered.map((topic, index) => ({ ...topic, color: topicColors[index % topicColors.length], short: shortOf(topic.label) }));
+  const ordered = orderTopics(meta.topics);
+  const enriched = ordered.map((topic, index) => ({ ...topic, color: topicColor(topic, index), short: shortOf(topic.label) }));
   context.topicById = new Map(enriched.map(topic => [topic.id, topic]));
   const ownerView = me.owner && !context.preview;
   context.topics = enriched.filter(topic => topic.timeline_visibility === 'public' || (ownerView && topic.timeline_visibility === 'owner'));

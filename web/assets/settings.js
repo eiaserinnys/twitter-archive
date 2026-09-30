@@ -51,11 +51,21 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
     await refreshData(); renderTopics();
   }
 
+  function switchControl(label, enabled, onToggle) {
+    const toggle = el('button', 'switch'); toggle.type = 'button'; toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-label', label); toggle.setAttribute('aria-checked', String(enabled));
+    toggle.append(el('i')); toggle.addEventListener('click', onToggle);
+    return toggle;
+  }
+
   function publicHideControl(topic) {
     const row = el('div', 'public-hide');
     const line = el('div', 'hide-controls');
-    const toggle = el('button', 'switch'); toggle.type = 'button'; toggle.setAttribute('role', 'switch');
-    toggle.setAttribute('aria-label', `${topic.label} 공개 숨김`); toggle.append(el('i'));
+    const toggle = switchControl(`${topic.label} 공개 숨김`, topic.public_hide_threshold != null, async () => {
+      enabled = !enabled; if (enabled) slider.value = '0.50';
+      paint(buckets); void loadHistogram();
+      await patchTopic(topic, { public_hide_threshold: enabled ? Number(slider.value) : null });
+    });
     const slider = el('input'); slider.type = 'range'; slider.min = '0.30'; slider.max = '0.95'; slider.step = '0.05';
     slider.setAttribute('aria-label', `${topic.label} 공개 숨김 점수`);
     const value = el('output', 'mono');
@@ -82,11 +92,6 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
       control.addEventListener('focus', loadHistogram);
       control.addEventListener('pointerdown', loadHistogram);
     }
-    toggle.addEventListener('click', async () => {
-      enabled = !enabled; if (enabled) slider.value = '0.50';
-      paint(buckets); void loadHistogram();
-      await patchTopic(topic, { public_hide_threshold: enabled ? Number(slider.value) : null });
-    });
     slider.addEventListener('input', () => paint(buckets));
     slider.addEventListener('change', () => patchTopic(topic, { public_hide_threshold: Number(slider.value) }));
     line.append(el('span', null, '공개 숨김'), toggle, slider, value); row.append(line, preview);
@@ -96,7 +101,8 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
 
   function renderTopics() {
     const fragment = document.createDocumentFragment();
-    ctx.meta.topics.forEach(topic => {
+    const regularTopics = ctx.meta.topics.filter(topic => !topic.builtin);
+    regularTopics.forEach(topic => {
       const row = el('li', 'toprow');
       const head = el('div', 'top-h'), swatch = el('i'); swatch.style.setProperty('--k', topic.color);
       head.append(swatch, el('b', null, topic.label));
@@ -121,8 +127,19 @@ export function createSettings(ctx, { navigate, onClose, onPreview, refreshData 
       row.append(el('p', `st${scored < total ? ' wait' : ''}`, `채점 ${scored >= total ? '완료' : '대기'} ${scored}/${total}`));
       fragment.append(row);
     });
+    const enabled = ctx.meta.topics.some(topic => topic.builtin);
+    const other = el('li', 'toprow');
+    const head = el('div', 'top-h'), swatch = el('i'); swatch.style.setProperty('--k', 'var(--ink-3)');
+    const toggle = switchControl('기타 사용', enabled, async () => {
+      await write('PUT', '/api/topics/other', { enabled: !enabled });
+      await refreshData(); renderTopics();
+    });
+    toggle.classList.add('other-topic-toggle');
+    head.append(swatch, el('b', null, '기타'), toggle);
+    const description = el('p', 'hide-preview', '다른 주제에 들지 않고 공개 숨김도 아닌 트윗을 모읍니다.');
+    other.append(head, description); fragment.append(other);
     $('topicList').replaceChildren(fragment);
-    $('stTopicsN').textContent = ctx.meta.topics.length;
+    $('stTopicsN').textContent = regularTopics.length + Number(enabled);
     $('hiddenCount').textContent = ctx.meta.public_hidden_count.toLocaleString('ko-KR');
   }
 

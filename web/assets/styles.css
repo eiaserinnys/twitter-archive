@@ -196,6 +196,14 @@ table.grid tbody th { border-left: 0; }
 .cell[data-l="3"] { background: var(--h3); color: var(--hd3); }
 .cell[data-l="4"] { background: var(--h4); color: var(--hd4); }
 .cell[data-l="5"] { background: var(--h5); color: var(--hd5); }
+.cell[data-t="other"] {
+  --h1: color-mix(in oklab, var(--ink-3) 17%, var(--bg));
+  --h2: color-mix(in oklab, var(--ink-3) 33%, var(--bg));
+  --h3: color-mix(in oklab, var(--ink-3) 55%, var(--bg));
+  --h4: color-mix(in oklab, var(--ink-3) 78%, var(--bg));
+  --h5: var(--ink-3);
+  --hd3: var(--bg); --hd4: var(--bg); --hd5: var(--bg);
+}
 button.cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
 .cell[aria-current] { outline: 3px solid var(--ink); outline-offset: -3px; box-shadow: inset 0 0 0 5px var(--bg); }
 .grid.dim .cell:not(.on):not([aria-current]) { opacity: .22; }
@@ -327,6 +335,7 @@ dialog::backdrop { background: var(--scrim); }
 :root[data-theme="light"] .top-h > i, :root[data-theme="light"] .trow > i, :root[data-theme="light"] .tgroup h4 i { box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
 .top-h b { font-size: 18px; font-weight: 900; letter-spacing: -0.03em; }
 .top-h .lock { color: var(--ink-2); }
+.other-topic-toggle { margin-left: auto; }
 .acts { display: flex; gap: 6px; margin-left: auto; }
 .acts button { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); font-size: 14px; font-weight: 700; }
 .acts button:hover, .acts button.armed { background: var(--ink); color: var(--bg); border-color: var(--ink); }

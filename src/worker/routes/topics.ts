@@ -7,8 +7,24 @@ import { randomId } from "../ids.js";
 import { bumpDataVersion, dataVersionStatement } from "../db/meta.js";
 import type { AppContext } from "./helpers.js";
 import { invalid, isVisibility, ownerJsonBody, ownerOnly } from "./helpers.js";
+import { otherTopic } from "../other-topic.js";
 
 const route = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
+
+route.put("/api/topics/other", async (context: AppContext) => {
+  const parsed = await ownerJsonBody(context);
+  if ("response" in parsed) return parsed.response;
+  const enabled = parsed.body.enabled;
+  if (typeof enabled !== "boolean") return invalid(context, "enabled must be a boolean.");
+  await runBatch(context, [
+    context.env.DB.prepare(`
+      INSERT INTO meta (key, value) VALUES ('other_topic', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).bind(enabled ? "1" : "0"),
+    dataVersionStatement(context.env.DB),
+  ]);
+  return context.json({ enabled, topic: enabled ? otherTopic() : null });
+});
 
 function validText(value: unknown, maxLength: number): value is string {
   return typeof value === "string" && value.trim().length >= 1 && value.length <= maxLength;
