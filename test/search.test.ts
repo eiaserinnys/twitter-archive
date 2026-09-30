@@ -393,9 +393,9 @@ describe("search ranking and route", () => {
     const response = await app.request("/api/tweets?limit=10&order=desc", {}, baseTestEnv(db));
 
     expect(response.status).toBe(200);
-    const body = await response.json() as { tweets: Array<{ id: string; article: { title: string; text: string } | null }> };
+    const body = await response.json() as { tweets: Array<{ id: string; article: { title: string; text: string; cover: string | null } | null }> };
     expect(body.tweets[0].id).toBe("article-api");
-    expect(body.tweets[0].article).toEqual({ title: "Synthetic API title", text: "Synthetic API body." });
+    expect(body.tweets[0].article).toEqual({ title: "Synthetic API title", text: "Synthetic API body.", cover: null });
   });
 
   it("returns the response contract and enforces the visitor daily limit", async () => {

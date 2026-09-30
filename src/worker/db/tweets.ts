@@ -151,7 +151,7 @@ export async function queryTweets(
     pageValues.push(filters.cursor.created_at, filters.cursor.created_at, filters.cursor.id);
   }
   const result = await db.prepare(`
-    SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.article_title, t.article_text, t.parent_id, t.parent_text,
+    SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.article_title, t.article_text, t.article_cover_key, t.parent_id, t.parent_text,
       t.parent_author, t.quoted_id, t.quoted_text${viewer.viewingAs === "owner" ? `,
       t.visibility, CASE WHEN ${publicHiddenSql("t")} THEN 1 ELSE 0 END AS public_hidden` : ""}
     FROM tweets t
@@ -187,10 +187,10 @@ export async function getOnThisDayTweets(
     ? `t.visibility, CASE WHEN ${publicHiddenSql("t")} THEN 1 ELSE 0 END AS public_hidden,`
     : "";
   const result = await db.prepare(`
-    SELECT id, created_at, date_kst, kind, text, article_title, article_text, parent_id, parent_text, parent_author,
+    SELECT id, created_at, date_kst, kind, text, article_title, article_text, article_cover_key, parent_id, parent_text, parent_author,
       quoted_id, quoted_text, day_total${ownerColumns}
     FROM (
-      SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.article_title, t.article_text, t.parent_id, t.parent_text,
+      SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.article_title, t.article_text, t.article_cover_key, t.parent_id, t.parent_text,
         t.parent_author, t.quoted_id, t.quoted_text,
         ${ownerSource}
         COUNT(*) OVER (PARTITION BY t.date_kst) AS day_total,

@@ -1,7 +1,8 @@
-import type { NormalizedTweet, TweetMedia } from "../../shared/types.js";
+import type { NormalizedTweet } from "../../shared/types.js";
 import type { D1PreparedStatement, Env } from "../env.js";
 import { dataVersionStatement } from "../db/meta.js";
 import { normalizeV2Response, type NormalizedV2Tweet } from "./normalize-v2.js";
+import { mediaExtension, uploadArticleCover } from "./media.js";
 
 const PAGE_LIMIT = 32;
 const PAGE_SIZE = 100;
@@ -29,7 +30,7 @@ function pageParameters(sinceId: string | null, paginationToken?: string): URLSe
     max_results: String(PAGE_SIZE),
     exclude: "retweets",
     "tweet.fields": "created_at,author_id,in_reply_to_user_id,referenced_tweets,attachments,entities,lang,note_tweet,article",
-    expansions: "attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id",
+    expansions: "attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id,article.cover_media",
     "media.fields": "type,url,preview_image_url,variants,width,height,alt_text",
     "user.fields": "username",
   });
@@ -43,14 +44,6 @@ function latestId(tweets: NormalizedV2Tweet[]): string | null {
     const id = item.tweet.id;
     return latest === null || BigInt(id) > BigInt(latest) ? id : latest;
   }, null);
-}
-
-function mediaExtension(media: TweetMedia, url: string): string {
-  if (media.type !== "photo") return "mp4";
-  const format = url.match(/[?&]format=([a-z0-9]+)/i)?.[1]?.toLowerCase();
-  const extension = url.split("?")[0].match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
-  const name = format ?? extension ?? "jpg";
-  return ["jpg", "jpeg", "png", "webp", "gif"].includes(name) ? name : "jpg";
 }
 
 async function uploadTweetMedia(env: Env, item: NormalizedV2Tweet, fetchImpl: typeof fetch): Promise<void> {
@@ -77,8 +70,8 @@ function tweetStatement(db: Env["DB"], tweet: NormalizedTweet): D1PreparedStatem
   return db.prepare(`
     INSERT OR REPLACE INTO tweets (
       id, created_at, date_kst, year, month, kind, text,
-      article_title, article_text, parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      article_title, article_text, article_cover_key, parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     tweet.id,
     tweet.created_at_utc,
@@ -89,6 +82,7 @@ function tweetStatement(db: Env["DB"], tweet: NormalizedTweet): D1PreparedStatem
     tweet.text,
     tweet.article_title ?? null,
     tweet.article_text ?? null,
+    tweet.article_cover_key ?? null,
     tweet.parent?.id ?? null,
     tweet.parent?.text || null,
     tweet.parent?.author || null,
@@ -148,7 +142,10 @@ export async function collectNewTweets(env: Env, fetchImpl: typeof fetch = fetch
     console.warn("X collection reached the 32-page timeline limit; re-import the X archive to fill older gaps.");
   }
 
-  for (const item of tweets) await uploadTweetMedia(env, item, fetchImpl);
+  for (const item of tweets) {
+    await uploadTweetMedia(env, item, fetchImpl);
+    item.tweet.article_cover_key = await uploadArticleCover(env, item.tweet.id, item.articleCoverUrl, fetchImpl);
+  }
   await persistTweets(env, tweets);
 
   const collectedId = latestId(tweets) ?? sinceId;

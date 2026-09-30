@@ -1,5 +1,6 @@
 import type { NormalizedTweet, TweetContext, TweetKind, TweetMedia, MediaType } from "../../shared/types.js";
 import { normalizeTweetText, type TweetUrlEntity } from "../../shared/tweet-text.js";
+import { articleCoverUrl } from "./media.js";
 
 interface RawRecord {
   [key: string]: unknown;
@@ -13,6 +14,7 @@ interface MediaUpload {
 export interface NormalizedV2Tweet {
   tweet: NormalizedTweet;
   mediaUploads: MediaUpload[];
+  articleCoverUrl: string | null;
 }
 
 function record(value: unknown): RawRecord | undefined {
@@ -156,6 +158,7 @@ function normalizeTweet(
       media,
     },
     mediaUploads: mediaItems.map((item) => uploadFor(item, mediaType(item.type))),
+    articleCoverUrl: articleCoverUrl(article, [...mediaByKey.values()]),
   };
 }
 

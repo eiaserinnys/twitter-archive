@@ -71,7 +71,7 @@ export async function findCandidates(db: D1Database, viewer: Viewer, filters: Ca
   const ownerOutput = viewer.viewingAs === "owner" ? ", visibility, public_hidden" : "";
   const result = await db.prepare(`
     WITH matched AS (
-      SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.article_title, t.article_text, t.parent_id, t.parent_text,
+      SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.article_title, t.article_text, t.article_cover_key, t.parent_id, t.parent_text,
         t.parent_author, t.quoted_id, t.quoted_text${ownerFields},
         CASE WHEN ${wordSql} THEN 1 ELSE 0 END AS word_match,
         ${topicSql} AS topic_score
@@ -79,7 +79,7 @@ export async function findCandidates(db: D1Database, viewer: Viewer, filters: Ca
       WHERE ${clauses.join(" AND ")}
     )
     SELECT id, created_at, date_kst, kind, text, parent_id, parent_text, parent_author,
-      quoted_id, quoted_text, article_title, article_text${ownerOutput}
+      quoted_id, quoted_text, article_title, article_text, article_cover_key${ownerOutput}
     FROM matched
     ${match ? `WHERE ${match}` : filters.strategies.includes("period") ? "" : "WHERE 0"}
     ORDER BY word_match DESC, topic_score DESC, created_at DESC, id DESC
