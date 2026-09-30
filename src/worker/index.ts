@@ -1,5 +1,11 @@
 import { Hono } from "hono";
-import { getViewer, type Viewer } from "./auth.js";
+import {
+  clearOwnerSessionCookie,
+  createOwnerSessionCookie,
+  getViewer,
+  verifyOwnerPassword,
+  type Viewer,
+} from "./auth.js";
 import type { Env } from "./env.js";
 import meRoute from "./routes/me.js";
 import metaRoute from "./routes/meta.js";
@@ -27,7 +33,71 @@ app.route("/", topicsRoute);
 app.route("/", tagsRoute);
 app.route("/", searchRoute);
 
-app.get("/owner", (context) => context.redirect("/", 302));
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]!);
+}
+
+function ownerLoginPage(siteTitle: string, failed = false): Response {
+  const title = escapeHtml(siteTitle);
+  const error = failed ? '<p class="foot" role="alert">비밀번호를 확인해 주세요.</p>' : "";
+  return new Response(`<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>${title}</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+<div class="shell">
+<main>
+<h1 class="handle">${title}</h1>
+<form class="search" method="post" action="">
+<span class="prompt" aria-hidden="true">&gt;</span>
+<label class="sr-only" for="owner-password">비밀번호</label>
+<input id="owner-password" type="password" name="password" autocomplete="current-password" placeholder="비밀번호" required>
+<button class="btn acid" type="submit">로그인</button>
+</form>
+${error}
+</main>
+</div>
+</body>
+</html>`, {
+    status: failed ? 401 : 200,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
+app.get("/owner", (context) => {
+  if (context.env.OWNER_AUTH !== "password" || context.get("viewer").owner) {
+    return context.redirect("/", 302);
+  }
+  return ownerLoginPage(context.env.SITE_TITLE);
+});
+app.post("/owner", async (context) => {
+  if (context.env.OWNER_AUTH !== "password") return context.text("Not Found", 404);
+  const form = new URLSearchParams(await context.req.text());
+  const password = form.get("password") ?? "";
+  if (!await verifyOwnerPassword(password, context.env.OWNER_PASSWORD)) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return ownerLoginPage(context.env.SITE_TITLE, true);
+  }
+  const response = context.redirect("/", 303);
+  response.headers.set("Set-Cookie", await createOwnerSessionCookie(context.req.raw, context.env.OWNER_PASSWORD!));
+  return response;
+});
+app.get("/logout", (context) => {
+  if (context.env.OWNER_AUTH !== "password") return context.redirect("/cdn-cgi/access/logout", 302);
+  const response = context.redirect("/", 303);
+  response.headers.set("Set-Cookie", clearOwnerSessionCookie(context.req.raw));
+  return response;
+});
 app.get("/robots.txt", async (context) => {
   if (context.env.ROBOTS_NOINDEX !== "1") return context.env.ASSETS.fetch(context.req.raw);
   return new Response("User-agent: *\nDisallow: /\n", {

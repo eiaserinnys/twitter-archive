@@ -6,7 +6,7 @@ import { createToday } from './today.js';
 import { createSearch } from './search.js';
 import { createSettings } from './settings.js';
 
-const context = { owner: false, preview: isPreview(), meta: null, timeline: null, tags: [], topics: [], searchTopics: [], topicById: new Map() };
+const context = { owner: false, loginUrl: null, logoutUrl: null, preview: isPreview(), meta: null, timeline: null, tags: [], topics: [], searchTopics: [], topicById: new Map() };
 let timeline, today, finder, settings;
 let tab = 'timeline', lastRoute = '/';
 const routePath = () => location.pathname.slice(basePath.length);
@@ -66,7 +66,8 @@ function paintHeader() {
   $('setBtn').hidden = !context.owner || context.preview;
   const authLink = $('authLink');
   authLink.hidden = context.preview;
-  authLink.href = context.owner ? '/cdn-cgi/access/logout' : withBase('/owner');
+  const authUrl = context.owner ? context.logoutUrl : context.loginUrl;
+  authLink.href = authUrl.startsWith('/cdn-cgi/') ? authUrl : withBase(authUrl);
   authLink.textContent = context.owner ? '로그아웃' : '로그인';
   $('visSwitch').setAttribute('aria-checked', String(context.preview));
   const sourceLink = $('sourceLink');
@@ -79,6 +80,8 @@ async function loadData() {
     get('/api/me'), get('/api/meta'), get('/api/timeline'), get('/api/tags'),
   ]);
   context.owner = me.owner;
+  context.loginUrl = me.login_url;
+  context.logoutUrl = me.logout_url;
   context.preview = isPreview();
   context.meta = meta; context.timeline = timelineData; context.tags = tags.tags;
   const ordered = meta.topics.slice().sort((a, b) => a.sort_order - b.sort_order);

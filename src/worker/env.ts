@@ -44,6 +44,8 @@ export interface Env {
   ACCOUNT_HANDLE: string;
   OWNER_EMAILS: string;
   OWNER_SERVICE_TOKEN_IDS: string;
+  OWNER_AUTH: "access" | "password";
+  OWNER_PASSWORD?: string;
   ACCESS_TEAM_DOMAIN: string;
   ACCESS_AUD: string;
   SCORE_BATCH: string;

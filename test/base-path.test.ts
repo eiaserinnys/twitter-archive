@@ -25,7 +25,12 @@ describe("Worker base path boundary", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: "free_query_disabled" });
     expect(await (await fetch("/twitter/api/me?as=visitor", env)).json())
-      .toEqual({ owner: true, viewing_as: "visitor" });
+      .toEqual({
+        owner: true,
+        viewing_as: "visitor",
+        login_url: "/owner",
+        logout_url: "/cdn-cgi/access/logout",
+      });
   });
 
   it("returns 404 outside the mounted namespace without calling assets", async () => {
