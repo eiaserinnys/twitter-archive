@@ -164,9 +164,22 @@ a { color: inherit; }
 .tl-tools { display: flex; gap: 8px; padding: 0 var(--pad) 20px; }
 .tl-tools .btn { flex: 1; }
 .grid-wrap { padding: 0 var(--pad); }
-table.grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-table.grid col.c-row { width: 27px; }
-table.grid th, table.grid td { padding: 0; border: 1px solid var(--line); }
+table.grid { --row-w: 27px; --tag-w: 0px; --grid-border: 1px; width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.grid col.c-row { width: var(--row-w); }
+table.grid th, table.grid td { padding: 0; border: var(--grid-border) solid var(--line); }
+.grid-scroll { overflow-x: auto; container-type: inline-size; }
+/* Preserve the topic width of a 15-column table at this viewport, including the collapsed outer border. */
+table.grid.scrolling {
+  min-width: round(up, calc(var(--tag-w) + var(--row-w) + var(--grid-border) +
+    (100cqw - var(--tag-w) - var(--row-w) - var(--grid-border)) / 15 * var(--topic-count)), var(--grid-border));
+}
+table.grid.scrolling .tag-h, table.grid.scrolling td.track {
+  position: sticky; left: 0; z-index: 2; background: var(--bg);
+}
+table.grid.scrolling .corner, table.grid.scrolling .row-label {
+  position: sticky; left: var(--tag-w); z-index: 2; background: var(--bg);
+}
+table.grid.scrolling .builtin { position: sticky; right: 0; z-index: 2; background: var(--bg); }
 table.grid thead th { border-top: 0; vertical-align: bottom; }
 table.grid thead th.corner { border: 0; vertical-align: bottom; text-align: left; }
 .corner span { display: block; padding: 0 0 8px 2px; font: 700 13px/1 var(--mono); color: var(--ink-3); letter-spacing: -0.02em; }
@@ -736,7 +749,7 @@ button.day[aria-pressed="true"] .dt i { box-shadow: 0 0 0 1.5px var(--on-acid); 
 
   .tl { display: grid; grid-template-columns: minmax(0, 1fr) 460px; align-items: start; }
   .tl-tools { display: none; }
-  table.grid col.c-row { width: 72px; }
+  table.grid { --row-w: 72px; }
   .yv-tools { display: flex; }
   .yv-tools .wide { margin-left: auto; }
   .topic-h { height: 44px; font-size: 14px; padding-bottom: 8px; }
