@@ -126,7 +126,7 @@ describe("X API v2 collection normalization", () => {
 });
 
 describe("initial X collection", () => {
-  it("collects only the newest 100 posts when no cursor exists", async () => {
+  it("follows multiple pages when no cursor exists", async () => {
     const statement = {
       bind() { return statement; },
       all: async () => ({ results: [], success: true, meta: { changes: 0 } }),
@@ -139,22 +139,28 @@ describe("initial X collection", () => {
     };
     const env = { DB: db, X_USER_ID: "self", X_BEARER_TOKEN: "test-token" } as unknown as Env;
     const requests: URL[] = [];
-    const posts = Array.from({ length: 100 }, (_, index) => ({
-      id: String(1000 + index),
-      author_id: "self",
-      created_at: "2024-01-01T00:00:00.000Z",
-      text: "Synthetic initial post",
-    }));
     const fetchImpl: typeof fetch = async (input) => {
-      requests.push(input instanceof URL ? input : new URL(String(input)));
-      return Response.json({ data: posts, meta: { next_token: "next-page" } });
+      const url = input instanceof URL ? input : new URL(String(input));
+      requests.push(url);
+      const page = requests.length;
+      return Response.json({
+        data: [{
+          id: String(1000 + page),
+          author_id: "self",
+          created_at: "2024-01-01T00:00:00.000Z",
+          text: `Synthetic initial post ${page}`,
+        }],
+        meta: page < 3 ? { next_token: `page-${page}` } : {},
+      });
     };
 
-    await collectNewTweets(env, fetchImpl);
+    const ids = await collectNewTweets(env, fetchImpl);
 
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(3);
     expect(requests[0].searchParams.get("max_results")).toBe("100");
     expect(requests[0].searchParams.has("since_id")).toBe(false);
+    expect(requests.map((url) => url.searchParams.get("pagination_token"))).toEqual([null, "page-1", "page-2"]);
+    expect(ids).toEqual(["1001", "1002", "1003"]);
   });
 });
 

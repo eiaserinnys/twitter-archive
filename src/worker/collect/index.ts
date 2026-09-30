@@ -122,7 +122,7 @@ export async function collectNewTweets(env: Env, fetchImpl: typeof fetch = fetch
   const sinceId = await metaValue(env, "collect_since_id") ?? await metaValue(env, "max_tweet_id");
   const tweets: NormalizedV2Tweet[] = [];
   let paginationToken: string | undefined;
-  const pageLimit = sinceId === null ? 1 : PAGE_LIMIT;
+  const pageLimit = PAGE_LIMIT;
   for (let page = 0; page < pageLimit; page += 1) {
     const url = new URL(`https://api.x.com/2/users/${encodeURIComponent(env.X_USER_ID)}/tweets`);
     url.search = pageParameters(sinceId, paginationToken).toString();
