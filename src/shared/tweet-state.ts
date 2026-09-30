@@ -13,11 +13,22 @@ const MEDIA_LABELS: Record<string, string> = {
   animated_gif: "움짤",
 };
 
+export const ARTICLE_TEXT_LIMIT = 3_000;
+
+export function tweetTextForJev(tweet: Pick<NormalizedTweet, "text" | "article_title" | "article_text">): string {
+  if (!tweet.article_title) return tweet.text;
+  return [
+    tweet.text,
+    `아티클 제목: ${tweet.article_title}`,
+    `아티클 본문: ${(tweet.article_text ?? "").slice(0, ARTICLE_TEXT_LIMIT)}`,
+  ].join("\n");
+}
+
 export function buildState(tweet: NormalizedTweet): string {
   const lines = [`작성일: ${tweet.date_kst}`, `종류: ${KIND_LABELS[tweet.kind]}`];
   if (tweet.parent?.text) lines.push(`원글: ${tweet.parent.text}`);
   if (tweet.quoted?.text) lines.push(`인용한 글: ${tweet.quoted.text}`);
-  lines.push(`트윗: ${tweet.text}`);
+  lines.push(`트윗: ${tweetTextForJev(tweet)}`);
   const counts = new Map<string, number>();
   for (const media of tweet.media ?? []) {
     const label = MEDIA_LABELS[media.type] ?? "미디어";

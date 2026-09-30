@@ -20,7 +20,7 @@ function pageParameters(sinceId: string | null, paginationToken?: string): URLSe
   const params = new URLSearchParams({
     max_results: String(PAGE_SIZE),
     exclude: "retweets",
-    "tweet.fields": "created_at,author_id,in_reply_to_user_id,referenced_tweets,attachments,entities,lang,note_tweet",
+    "tweet.fields": "created_at,author_id,in_reply_to_user_id,referenced_tweets,attachments,entities,lang,note_tweet,article",
     expansions: "attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id",
     "media.fields": "type,url,preview_image_url,variants,width,height,alt_text",
     "user.fields": "username",
@@ -69,8 +69,8 @@ function tweetStatement(db: Env["DB"], tweet: NormalizedTweet): D1PreparedStatem
   return db.prepare(`
     INSERT OR REPLACE INTO tweets (
       id, created_at, date_kst, year, month, kind, text,
-      parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      article_title, article_text, parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     tweet.id,
     tweet.created_at_utc,
@@ -79,6 +79,8 @@ function tweetStatement(db: Env["DB"], tweet: NormalizedTweet): D1PreparedStatem
     tweet.month,
     tweet.kind,
     tweet.text,
+    tweet.article_title ?? null,
+    tweet.article_text ?? null,
     tweet.parent?.id ?? null,
     tweet.parent?.text || null,
     tweet.parent?.author || null,

@@ -1,4 +1,5 @@
 import { callJev, type JevConfig, type JevRequest } from "../../shared/jev-client.js";
+import { tweetTextForJev } from "../../shared/tweet-state.js";
 import type { TweetDbRow } from "../serialize.js";
 
 export interface RankedTweet { row: TweetDbRow; score: number }
@@ -16,7 +17,7 @@ export function buildRankRequest(q: string, rows: TweetDbRow[], offset: number, 
     const lines = [rankPrompts[question], `작성일: ${row.date_kst}`];
     if (row.parent_text) lines.push(`원글: ${row.parent_text}`);
     if (row.quoted_text) lines.push(`인용한 글: ${row.quoted_text}`);
-    lines.push(`트윗: ${row.text}`);
+    lines.push(`트윗: ${tweetTextForJev(row)}`);
     questions[`c${offset + index}`] = {
       type: "noul", instructions: lines.join("\n"), criteria: { true: "그렇다", false: "아니다" },
     };

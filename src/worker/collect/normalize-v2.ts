@@ -131,6 +131,7 @@ function normalizeTweet(
   }
   const noteTweet = record(tweet.note_tweet);
   const text = normalizeTweetText(stringValue(noteTweet?.text) ?? stringValue(tweet.text) ?? "", urls, mediaUrls);
+  const article = record(tweet.article);
   const media: TweetMedia[] = mediaItems.map((item) => ({
     type: mediaType(item.type),
     r2_key: null,
@@ -146,6 +147,8 @@ function normalizeTweet(
       ...createdAtFields(tweet.created_at),
       kind,
       text,
+      article_title: typeof article?.title === "string" ? article.title : "",
+      article_text: typeof article?.plain_text === "string" ? article.plain_text : "",
       parent,
       quoted,
       lang: stringValue(tweet.lang) ?? null,

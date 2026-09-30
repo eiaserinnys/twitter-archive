@@ -22,6 +22,8 @@ interface TweetRow {
   month: number;
   kind: TweetKind;
   text: string;
+  article_title: string | null;
+  article_text: string | null;
   parent_id: string | null;
   parent_text: string | null;
   parent_author: string | null;
@@ -83,18 +85,20 @@ async function candidatesForTweets(
   env: Env,
   tweets: TweetRow[],
   topicId?: string,
+  overwriteExisting = false,
 ): Promise<ScoreCandidate[]> {
   if (tweets.length === 0) return [];
   const ids = tweets.map((tweet) => tweet.id);
   const pendingRows = await queryIdChunks(ids, async (chunk) => {
     const placeholders = chunk.map(() => "?").join(", ");
     const topicClause = topicId ? "AND tp.id = ?" : "";
+    const scoreClause = overwriteExisting ? "" : "AND s.tweet_id IS NULL";
     const result = await env.DB.prepare(`
       SELECT t.id AS tweet_id, tp.id, tp.question, tp.version
       FROM tweets t
       JOIN topics tp ON tp.active = 1
       LEFT JOIN scores s ON s.tweet_id = t.id AND s.topic = tp.id AND s.version = tp.version
-      WHERE t.id IN (${placeholders}) AND s.tweet_id IS NULL ${topicClause}
+      WHERE t.id IN (${placeholders}) ${scoreClause} ${topicClause}
       ORDER BY t.created_at DESC, t.id DESC, tp.sort_order, tp.id
     `).bind(...chunk, ...(topicId ? [topicId] : [])).all<PendingTopicRow>();
     return result.results;
@@ -132,6 +136,8 @@ async function candidatesForTweets(
       month: row.month,
       kind: row.kind,
       text: row.text,
+      article_title: row.article_title,
+      article_text: row.article_text,
       parent: tweetContext(row.parent_id, row.parent_text, row.parent_author),
       quoted: tweetContext(row.quoted_id, row.quoted_text),
       lang: row.lang,
@@ -145,7 +151,7 @@ async function candidatesForTweets(
 async function recentPendingTweets(env: Env, limit: number): Promise<TweetRow[]> {
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const result = await env.DB.prepare(`
-    SELECT t.id, t.created_at, t.date_kst, t.year, t.month, t.kind, t.text,
+    SELECT t.id, t.created_at, t.date_kst, t.year, t.month, t.kind, t.text, t.article_title, t.article_text,
       t.parent_id, t.parent_text, t.parent_author, t.quoted_id, t.quoted_text, t.lang, t.source
     FROM tweets t
     WHERE t.created_at >= ? AND EXISTS (
@@ -163,7 +169,7 @@ async function tweetsByIds(env: Env, ids: string[]): Promise<TweetRow[]> {
   return queryIdChunks(ids, async (chunk) => {
     const placeholders = chunk.map(() => "?").join(", ");
     const result = await env.DB.prepare(`
-      SELECT id, created_at, date_kst, year, month, kind, text,
+      SELECT id, created_at, date_kst, year, month, kind, text, article_title, article_text,
         parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
       FROM tweets WHERE id IN (${placeholders})
       ORDER BY created_at DESC, id DESC
@@ -276,7 +282,7 @@ async function scoreWork(env: Env, work: ScoreCandidate[], writes: ScoreWriteTra
 export async function scoreCollectedTweets(env: Env, ids: string[]): Promise<{ scored: number; stoppedForBudget: boolean }> {
   scoreBatchSize(env);
   const tweets = await tweetsByIds(env, [...new Set(ids)]);
-  const work = await candidatesForTweets(env, tweets);
+  const work = await candidatesForTweets(env, tweets, undefined, true);
   const writes = { rows: 0 };
   try {
     const result = await scoreWork(env, work, writes);
@@ -324,7 +330,7 @@ export async function processRescoreJobs(env: Env): Promise<{ scored: number; st
       }
 
       const tweets = await env.DB.prepare(`
-        SELECT id, created_at, date_kst, year, month, kind, text,
+        SELECT id, created_at, date_kst, year, month, kind, text, article_title, article_text,
           parent_id, parent_text, parent_author, quoted_id, quoted_text, lang, source
         FROM tweets WHERE id > ? ORDER BY id LIMIT ?
       `).bind(state.cursor, batchSize).all<TweetRow>();

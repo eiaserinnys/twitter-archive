@@ -4,6 +4,7 @@ import { collectNewTweets } from "../src/worker/collect/index.js";
 import { buildJevRequest, canReserveJevSpend } from "../src/worker/score-queue.js";
 import type { Env } from "../src/worker/env.js";
 import type { NormalizedTweet } from "../src/shared/types.js";
+import { baseTestEnv, createD1TestDatabase } from "./d1-test-db.js";
 
 const v2Response = {
   data: [
@@ -12,6 +13,7 @@ const v2Response = {
       author_id: "self",
       created_at: "2024-03-30T15:30:00.000Z",
       text: "short preview",
+      article: { title: "Synthetic article title", plain_text: "Synthetic article body from the API response." },
       note_tweet: { text: "Long &amp; complete https://t.co/link https://t.co/photo" },
       entities: {
         urls: [
@@ -109,12 +111,15 @@ describe("X API v2 collection normalization", () => {
     expect(rows[0].tweet).toMatchObject({
       date_kst: "2024-03-31",
       text: "Long & complete https://example.test/article",
+      article_title: "Synthetic article title",
+      article_text: "Synthetic article body from the API response.",
       source: "api",
       media: [
         { type: "photo", width: 640, height: 480, alt: "Photo alt", r2_key: null },
         { type: "video", width: 1280, height: 720, r2_key: null },
       ],
     });
+    expect(rows[1].tweet).toMatchObject({ article_title: "", article_text: "" });
     expect(rows[0].mediaUploads).toEqual([
       { url: "https://pbs.twimg.com/media/photo.jpg?format=jpg&name=large", contentType: "image/jpeg" },
       { url: "https://video.test/high.mp4", contentType: "video/mp4" },
@@ -126,6 +131,28 @@ describe("X API v2 collection normalization", () => {
 });
 
 describe("initial X collection", () => {
+  it("stores checked ordinary tweets with empty article fields", async () => {
+    const { db, sqlite } = createD1TestDatabase();
+    const fetchImpl: typeof fetch = async () => Response.json({
+      data: [{
+        id: "1101",
+        author_id: "self",
+        created_at: "2026-09-30T00:00:00.000Z",
+        text: "A synthetic ordinary post",
+      }],
+      meta: {},
+    });
+
+    try {
+      await collectNewTweets(baseTestEnv(db, { X_USER_ID: "self" }), fetchImpl);
+
+      expect(sqlite.prepare("SELECT article_title, article_text FROM tweets WHERE id = '1101'").get())
+        .toEqual({ article_title: "", article_text: "" });
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("follows multiple pages when no cursor exists", async () => {
     const statement = {
       bind() { return statement; },
@@ -158,6 +185,7 @@ describe("initial X collection", () => {
 
     expect(requests).toHaveLength(3);
     expect(requests[0].searchParams.get("max_results")).toBe("100");
+    expect(requests[0].searchParams.get("tweet.fields")?.split(",")).toContain("article");
     expect(requests[0].searchParams.has("since_id")).toBe(false);
     expect(requests.map((url) => url.searchParams.get("pagination_token"))).toEqual([null, "page-1", "page-2"]);
     expect(ids).toEqual(["1001", "1002", "1003"]);
@@ -230,5 +258,21 @@ describe("score queue requests and monthly cap", () => {
     expect(canReserveJevSpend(5, 0, 0.0001, 5)).toBe(false);
     expect(canReserveJevSpend(4.999, 0.0005, 0.001, 5)).toBe(false);
     expect(canReserveJevSpend(4.9, 0.05, 0.01, 5)).toBe(true);
+  });
+
+  it("adds article title and only the first 3,000 body characters to scoring state", () => {
+    const request = buildJevRequest({
+      ...scoreTweet,
+      article_title: "Synthetic long article",
+      article_text: "x".repeat(3_005),
+    }, [{ id: "topic-a", question: "게임 개발" }]);
+
+    expect(request.state).toBe([
+      "작성일: 2024-01-01",
+      "종류: 원글",
+      "트윗: A scored tweet",
+      "아티클 제목: Synthetic long article",
+      `아티클 본문: ${"x".repeat(3_000)}`,
+    ].join("\n"));
   });
 });

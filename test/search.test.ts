@@ -301,6 +301,22 @@ describe("public search presets", () => {
 });
 
 describe("SQL candidates", () => {
+  it("matches article titles and bodies as lexical candidates", async () => {
+    const { db, sqlite } = database();
+    tweet(sqlite, "article-title", "링크만 있는 트윗");
+    tweet(sqlite, "article-body", "링크만 있는 다른 트윗");
+    sqlite.prepare("UPDATE tweets SET article_title = ?, article_text = ? WHERE id = ?")
+      .run("바람의 방향", "본문에는 없는 표현", "article-title");
+    sqlite.prepare("UPDATE tweets SET article_title = ?, article_text = ? WHERE id = ?")
+      .run("다른 제목", "본문 고유어", "article-body");
+
+    const titleMatch = await findCandidates(db, owner, { q: "방향", strategies: ["words"], topicCoordinates: [] });
+    const bodyMatch = await findCandidates(db, owner, { q: "고유어", strategies: ["words"], topicCoordinates: [] });
+
+    expect(titleMatch.map(({ id }) => id)).toEqual(["article-title"]);
+    expect(bodyMatch.map(({ id }) => id)).toEqual(["article-body"]);
+  });
+
   it("removes restricted topics at display threshold and keeps lexical or judged matches", async () => {
     const { db, sqlite } = database();
     tweet(sqlite, "1", "영화 한 편"); score(sqlite, "1", "film", 0.8);
@@ -345,6 +361,7 @@ describe("search ranking and route", () => {
     const request = buildRankRequest("그 영화", [{
       id: "1", created_at: "2015-01-01T00:00:00.000Z", date_kst: "2015-01-01", kind: "quote", text: "내 감상",
       parent_id: null, parent_text: "원글 내용", parent_author: null, quoted_id: "2", quoted_text: "인용 내용",
+      article_title: null, article_text: null,
     }], 0);
     expect(request.questions.c0).toEqual({
       type: "noul",
@@ -352,7 +369,33 @@ describe("search ranking and route", () => {
       criteria: { true: "그렇다", false: "아니다" },
     });
     expect(buildRankRequest("그 영화", [], 0, "related").state).toBe("찾는 트윗: 그 영화");
-    expect(buildRankRequest("그 영화", [{ id: "1", created_at: "", date_kst: "2015-01-01", kind: "original", text: "글", parent_id: null, parent_text: null, parent_author: null, quoted_id: null, quoted_text: null }], 0, "related").questions.c0.instructions).toContain("다음 트윗이 찾는 내용과 관련이 있는가?");
+    expect(buildRankRequest("그 영화", [{ id: "1", created_at: "", date_kst: "2015-01-01", kind: "original", text: "글", parent_id: null, parent_text: null, parent_author: null, quoted_id: null, quoted_text: null, article_title: null, article_text: null }], 0, "related").questions.c0.instructions).toContain("다음 트윗이 찾는 내용과 관련이 있는가?");
+  });
+
+  it("adds article content to rank instructions with the shared 3,000-character limit", () => {
+    const request = buildRankRequest("그 영화", [{
+      id: "1", created_at: "2015-01-01T00:00:00.000Z", date_kst: "2015-01-01", kind: "original", text: "링크만 있는 트윗",
+      parent_id: null, parent_text: null, parent_author: null, quoted_id: null, quoted_text: null,
+      article_title: "Synthetic ranked article", article_text: "y".repeat(3_005),
+    }], 0);
+
+    expect(request.questions.c0.instructions).toContain("아티클 제목: Synthetic ranked article");
+    expect(request.questions.c0.instructions).toContain(`아티클 본문: ${"y".repeat(3_000)}`);
+    expect(request.questions.c0.instructions).not.toContain("y".repeat(3_001));
+  });
+
+  it("returns the article object from the tweets API", async () => {
+    const { db, sqlite } = database();
+    tweet(sqlite, "article-api", "https://x.com/i/article/example");
+    sqlite.prepare("UPDATE tweets SET article_title = ?, article_text = ? WHERE id = ?")
+      .run("Synthetic API title", "Synthetic API body.", "article-api");
+
+    const response = await app.request("/api/tweets?limit=10&order=desc", {}, baseTestEnv(db));
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { tweets: Array<{ id: string; article: { title: string; text: string } | null }> };
+    expect(body.tweets[0].id).toBe("article-api");
+    expect(body.tweets[0].article).toEqual({ title: "Synthetic API title", text: "Synthetic API body." });
   });
 
   it("returns the response contract and enforces the visitor daily limit", async () => {
