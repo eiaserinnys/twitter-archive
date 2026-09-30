@@ -123,31 +123,54 @@ app.onError((_error, context) => context.json({ error: "internal", message: "Int
 
 export { app };
 
-async function fetch(request: Request, env: Env, executionCtx?: Parameters<typeof app.fetch>[2]): Promise<Response> {
-  const basePath = env.BASE_PATH;
-  if (!basePath) return app.fetch(request, env, executionCtx);
-
-  const url = new URL(request.url);
-  if (url.pathname === basePath) {
-    url.pathname += "/";
-    return Response.redirect(url.toString(), 301);
-  }
-  if (!url.pathname.startsWith(`${basePath}/`)) return new Response("Not Found", { status: 404 });
-  url.pathname = url.pathname.slice(basePath.length);
-  const response = await app.fetch(new Request(url, request), env, executionCtx);
+async function processResponse(
+  response: Response,
+  basePath: string,
+  umamiScriptUrl?: string,
+  umamiWebsiteId?: string,
+): Promise<Response> {
   const headers = new Headers(response.headers);
   const location = headers.get("Location");
-  if (location?.startsWith("/") && !location.startsWith("/cdn-cgi/")) {
+  if (basePath && location?.startsWith("/") && !location.startsWith("/cdn-cgi/")) {
     headers.set("Location", `${basePath}${location}`);
   }
+
   if (headers.get("Content-Type")?.includes("text/html")) {
-    const html = (await response.text())
-      .replace(/\b(src|href)="\/(?!\/|cdn-cgi\/)/g, (_match, attribute: string) => `${attribute}="${basePath}/`)
-      .replace("<head>", `<head><meta name="base-path" content="${basePath}">`);
+    let html = await response.text();
+    if (basePath) {
+      html = html.replace(/\b(src|href)="\/(?!\/|cdn-cgi\/)/g, (_match, attribute: string) => `${attribute}="${basePath}/`);
+    }
+    const umami = umamiScriptUrl && umamiWebsiteId
+      ? `<script defer src="${escapeHtml(umamiScriptUrl)}" data-website-id="${escapeHtml(umamiWebsiteId)}"></script>`
+      : "";
+    const headContents = `${basePath ? `<meta name="base-path" content="${basePath}">` : ""}${umami}`;
+    if (headContents) html = html.replace("<head>", `<head>${headContents}`);
     headers.delete("Content-Length");
     return new Response(html, { status: response.status, statusText: response.statusText, headers });
   }
+
+  if (!basePath) return response;
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function fetch(request: Request, env: Env, executionCtx?: Parameters<typeof app.fetch>[2]): Promise<Response> {
+  const basePath = env.BASE_PATH;
+  const hasUmami = Boolean(env.UMAMI_SCRIPT_URL && env.UMAMI_WEBSITE_ID);
+  if (!basePath && !hasUmami) return app.fetch(request, env, executionCtx);
+
+  let appRequest = request;
+  if (basePath) {
+    const url = new URL(request.url);
+    if (url.pathname === basePath) {
+      url.pathname += "/";
+      return Response.redirect(url.toString(), 301);
+    }
+    if (!url.pathname.startsWith(`${basePath}/`)) return new Response("Not Found", { status: 404 });
+    url.pathname = url.pathname.slice(basePath.length);
+    appRequest = new Request(url, request);
+  }
+  const response = await app.fetch(appRequest, env, executionCtx);
+  return processResponse(response, basePath, env.UMAMI_SCRIPT_URL, env.UMAMI_WEBSITE_ID);
 }
 
 export default { fetch, scheduled: handleScheduled };

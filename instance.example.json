@@ -13,6 +13,10 @@
     "X_USER_ID": "",
     "VISITOR_SEARCH": "presets"
   },
+  "analytics": {
+    "umami_script_url": "",
+    "umami_website_id": ""
+  },
   "archive": "path/to/your-archive.zip",
   "topics": "src/shared/topics.json",
   "fetch_context_max_usd": 0,

@@ -8,6 +8,7 @@ export interface InstanceConfig {
   d1_name?: string;
   r2_bucket?: string;
   domain?: { hostname: string; path?: string };
+  analytics?: { umami_script_url?: string; umami_website_id?: string };
   vars?: Record<string, string>;
   archive?: string;
   topics?: string;
@@ -41,6 +42,13 @@ export function readInstanceConfig(value: unknown): InstanceConfig {
   return config;
 }
 
+export function configuredInstanceVars(instance: Pick<InstanceConfig, "analytics" | "vars">): Record<string, string> {
+  const vars = { ...instance.vars };
+  if (instance.analytics?.umami_script_url !== undefined) vars.UMAMI_SCRIPT_URL = instance.analytics.umami_script_url;
+  if (instance.analytics?.umami_website_id !== undefined) vars.UMAMI_WEBSITE_ID = instance.analytics.umami_website_id;
+  return vars;
+}
+
 export function buildWranglerConfig(
   template: TomlTable,
   instance: InstanceConfig,
@@ -49,7 +57,7 @@ export function buildWranglerConfig(
 ): TomlTable {
   const config = structuredClone(template);
   config.name = instance.worker_name;
-  config.vars = { ...config.vars as TomlTable, ...instance.vars };
+  config.vars = { ...config.vars as TomlTable, ...configuredInstanceVars(instance) };
   delete config.route;
   delete config.routes;
   config.workers_dev = !instance.domain;

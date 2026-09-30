@@ -7,6 +7,7 @@ import { serializeEnv } from "../../../src/node/env-file.js";
 import { buildSql } from "../../load-d1.js";
 import { readTopicSeed } from "../topics.js";
 import type { InstanceConfig } from "./config.js";
+import { configuredInstanceVars } from "./config.js";
 import { resolveXUserId } from "./account.js";
 import { SetupRuntime } from "./runtime.js";
 
@@ -18,7 +19,7 @@ export async function setupNode(runtime: SetupRuntime, instanceName: string, ins
   const archive = instance.archive ? resolve(repoRoot, instance.archive) : undefined;
   const topics = resolve(repoRoot, instance.topics ?? "src/shared/topics.json");
   const scoreMaxUsd = instance.score_max_usd ?? 2;
-  const vars = mergeVars({ ...templateVars, ...instance.vars }, env);
+  const vars = mergeVars({ ...templateVars, ...configuredInstanceVars(instance) }, env);
   if (instance.domain?.path) vars.BASE_PATH = instance.domain.path;
   if (dryRun) console.log("Plan: apply SQLite migrations in " + runtimeDir);
   else {

@@ -8,10 +8,10 @@ import { syntheticArchiveFiles } from "./fixtures.js";
 describe("instance setup", () => {
   const template = {
     name: "template", main: "src/worker/index.ts",
-    assets: { directory: "./web", binding: "ASSETS" },
+    assets: { directory: "./web", binding: "ASSETS", run_worker_first: ["/*", "!/cdn-cgi/access/*"] },
     triggers: { crons: ["*/30 * * * *"] },
     version_metadata: { binding: "CF_VERSION_METADATA" },
-    vars: { SITE_TITLE: "default", X_USER_ID: "", KEEP: "kept" },
+    vars: { SITE_TITLE: "default", X_USER_ID: "", UMAMI_SCRIPT_URL: "", UMAMI_WEBSITE_ID: "", KEEP: "kept" },
     routes: [{ pattern: "old.test", custom_domain: true }],
     d1_databases: [{ binding: "DB", database_name: "old", database_id: "old-id", migrations_dir: "migrations" }],
     r2_buckets: [{ binding: "MEDIA", bucket_name: "old" }],
@@ -27,6 +27,22 @@ describe("instance setup", () => {
     expect(config.routes).toBeUndefined();
     for (const key of ["assets", "triggers", "version_metadata", "main"]) expect(config[key]).toEqual(template[key as keyof typeof template]);
     expect(template.name).toBe("template");
+  });
+  it("maps configured Umami analytics into Wrangler vars and keeps worker-first asset routing", () => {
+    const instance = readInstanceConfig({
+      worker_name: "smoke",
+      analytics: {
+        umami_script_url: "https://stats.example.test/script.js",
+        umami_website_id: "site-123",
+      },
+    });
+    const config = buildWranglerConfig(template, instance, "new-id");
+
+    expect(config.vars).toMatchObject({
+      UMAMI_SCRIPT_URL: "https://stats.example.test/script.js",
+      UMAMI_WEBSITE_ID: "site-123",
+    });
+    expect((config.assets as Record<string, unknown>).run_worker_first).toEqual(["/*", "!/cdn-cgi/access/*"]);
   });
   it("uses a custom domain for the full hostname", () => {
     const config = buildWranglerConfig(template, { worker_name: "smoke", domain: { hostname: "archive.example.test", path: "" } }, "id");
@@ -55,5 +71,6 @@ describe("instance setup", () => {
     expect(ignore.split("\n")).toContain("wrangler.*.toml");
     const templateToml = parse(await readFile(new URL("../wrangler.toml", import.meta.url), "utf8"));
     expect(templateToml.main).toBe("src/worker/index.ts");
+    expect((templateToml.assets as Record<string, unknown>).run_worker_first).toEqual(["/*", "!/cdn-cgi/access/*"]);
   });
 });
