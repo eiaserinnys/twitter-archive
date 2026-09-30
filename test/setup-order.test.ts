@@ -11,6 +11,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 it("plans Access then deploy then secrets then health/meta without writing files", async () => {
   const events: string[] = [];
+  const ownerPassword = "synthetic-owner-password";
   const log = vi.spyOn(console, "log").mockImplementation((message) => { events.push(String(message)); });
   vi.mocked(readFile).mockImplementation(async (path) => String(path).endsWith("config.json")
     ? JSON.stringify({ worker_name: "test", domain: { hostname: "archive.example.test", path: "/twitter" },
@@ -32,6 +33,7 @@ it("plans Access then deploy then secrets then health/meta without writing files
   });
   await setup(["--instance", "test", "--dry-run"], {
     CLOUDFLARE_API_TOKEN: "synthetic-token", CLOUDFLARE_ACCOUNT_ID: "test", TYPESAFE_API_KEY: "synthetic-secret",
+    OWNER_PASSWORD: ownerPassword,
   });
   const deploy = commands.findIndex(([command]) => command === "deploy");
   const secret = commands.findIndex(([command]) => command === "secret");
@@ -40,6 +42,8 @@ it("plans Access then deploy then secrets then health/meta without writing files
   expect(events.findIndex((event) => event.endsWith("/access/apps"))).toBeLessThan(events.findIndex((event) => event.startsWith("deploy ")));
   expect(events.findIndex((event) => event.includes("/api/health"))).toBeGreaterThan(events.findIndex((event) => event.startsWith("secret put ")));
   const messages = log.mock.calls.map(([message]) => String(message));
+  expect(commands).toContainEqual(["secret", "put", "OWNER_PASSWORD", "--config", "wrangler.test.toml"]);
+  expect(messages.join("\n")).not.toContain(ownerPassword);
   expect(messages.findIndex((message) => message.startsWith("Access plan:"))).toBeLessThan(messages.findIndex((message) => message.includes("/api/health")));
   expect(messages).toContain("Plan: GET https://archive.example.test/twitter/api/meta (print total_tweets)");
   expect(writeFile).not.toHaveBeenCalled();

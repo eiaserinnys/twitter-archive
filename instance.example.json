@@ -16,7 +16,7 @@
   "archive": "path/to/your-archive.zip",
   "topics": "src/shared/topics.json",
   "fetch_context_max_usd": 0,
-  "score_max_usd": 0,
+  "score_max_usd": 2,
   "access": {
     "policy_ids": []
   }

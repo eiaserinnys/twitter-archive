@@ -1,6 +1,6 @@
 import { parse, stringify, type TomlTable } from "smol-toml";
 
-export const SECRET_NAMES = ["X_BEARER_TOKEN", "TYPESAFE_BASE_URL", "TYPESAFE_API_KEY"] as const;
+export const SECRET_NAMES = ["X_BEARER_TOKEN", "TYPESAFE_BASE_URL", "TYPESAFE_API_KEY", "OWNER_PASSWORD"] as const;
 
 export interface InstanceConfig {
   worker_name: string;
@@ -25,8 +25,9 @@ export function readInstanceConfig(value: unknown): InstanceConfig {
   if (config.target !== undefined && config.target !== "cloudflare" && config.target !== "node") {
     throw new Error("target must be cloudflare or node.");
   }
+  if (config.score_max_usd === undefined) config.score_max_usd = 2;
   if (config.vars && Object.keys(config.vars).some((name) =>
-    [...SECRET_NAMES, "OWNER_PASSWORD", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"].includes(name as typeof SECRET_NAMES[number]))) {
+    [...SECRET_NAMES, "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"].includes(name as typeof SECRET_NAMES[number]))) {
     throw new Error("Supply credentials through environment variables, never config.json vars.");
   }
   if (config.domain?.path && (!config.domain.path.startsWith("/") || config.domain.path.endsWith("/"))) {

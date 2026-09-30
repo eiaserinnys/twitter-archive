@@ -17,6 +17,7 @@ export async function setupNode(runtime: SetupRuntime, instanceName: string, ins
   const sqlitePath = resolve(runtimeDir, "archive.sqlite"), mediaDir = resolve(runtimeDir, "media");
   const archive = instance.archive ? resolve(repoRoot, instance.archive) : undefined;
   const topics = resolve(repoRoot, instance.topics ?? "src/shared/topics.json");
+  const scoreMaxUsd = instance.score_max_usd ?? 2;
   const vars = mergeVars({ ...templateVars, ...instance.vars }, env);
   if (instance.domain?.path) vars.BASE_PATH = instance.domain.path;
   if (dryRun) console.log("Plan: apply SQLite migrations in " + runtimeDir);
@@ -35,8 +36,8 @@ export async function setupNode(runtime: SetupRuntime, instanceName: string, ins
     if ((instance.fetch_context_max_usd ?? 0) > 0 && env.X_BEARER_TOKEN) {
       await script("fetch-context", ["--max-usd", String(instance.fetch_context_max_usd)]);
     }
-    if ((instance.score_max_usd ?? 0) > 0 && env.TYPESAFE_BASE_URL && env.TYPESAFE_API_KEY) {
-      await script("score", ["--max-usd", String(instance.score_max_usd), "--topics", topics]);
+    if (scoreMaxUsd > 0) {
+      await script("score", ["--max-usd", String(scoreMaxUsd), "--topics", topics]);
     }
     await script("load-d1", ["--sqlite", sqlitePath, "--topics", topics]);
     await script("upload-media", ["--sqlite", sqlitePath, "--media-dir", mediaDir, "--archive", archive]);

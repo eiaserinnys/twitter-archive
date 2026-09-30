@@ -22,6 +22,12 @@ export async function setup(args: string[], env: NodeJS.ProcessEnv): Promise<voi
   const repoRoot = fileURLToPath(new URL("../", import.meta.url));
   const instanceDir = resolve(repoRoot, "instances", instanceName);
   const instance = readInstanceConfig(JSON.parse(await readFile(resolve(instanceDir, "config.json"), "utf8")));
+  const scoreMaxUsd = instance.score_max_usd ?? 2;
+  if (instance.archive && scoreMaxUsd === 0) {
+    console.warn("score_max_usd=0: 아카이브의 과거 트윗은 채점되지 않아 주제 연표에 나타나지 않습니다.");
+  } else if (instance.archive && (!env.TYPESAFE_BASE_URL || !env.TYPESAFE_API_KEY)) {
+    throw new Error("아카이브의 과거 트윗은 설치 중에만 채점됩니다. Jev 키를 넣거나 score_max_usd를 0으로 명시하세요.");
+  }
   const template = parse(await readFile(resolve(repoRoot, "wrangler.toml"), "utf8"));
   const runtime = new SetupRuntime(repoRoot, dryRun, env);
   if (instance.target === "node") {
@@ -69,8 +75,8 @@ export async function setup(args: string[], env: NodeJS.ProcessEnv): Promise<voi
     if ((instance.fetch_context_max_usd ?? 0) > 0 && env.X_BEARER_TOKEN) {
       await script("fetch-context", ["--max-usd", String(instance.fetch_context_max_usd)]);
     }
-    if ((instance.score_max_usd ?? 0) > 0 && env.TYPESAFE_BASE_URL && env.TYPESAFE_API_KEY) {
-      await script("score", ["--max-usd", String(instance.score_max_usd), "--topics", topics]);
+    if (scoreMaxUsd > 0) {
+      await script("score", ["--max-usd", String(scoreMaxUsd), "--topics", topics]);
     }
     await script("load-d1", [mode, "--wrangler-config", configName, "--topics", topics]);
     await script("upload-media", [mode, "--wrangler-config", configName, "--archive", archive]);
