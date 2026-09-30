@@ -230,6 +230,26 @@ X 데이터 아카이브를 새로 받아 설정 파일의 `archive`를 바꾸�
 **백업과 복원은 어떻게 하나요?**
 Cloudflare 설치는 `npx wrangler d1 export DB --remote --output backup.sql --config wrangler.<이름>.toml`로 DB를 내보내고 R2 버킷을 복사해 둡니다. 복원할 때는 빈 D1에 `npx wrangler d1 execute DB --remote --file backup.sql --config wrangler.<이름>.toml`로 되돌리고 R2 파일을 다시 올립니다. 내 서버 설치는 `instances/<이름>/runtime/` 폴더를 통째로 복사하고, 복원할 때 그 폴더를 되돌린 뒤 다시 실행합니다. 원본 아카이브 zip도 함께 보관해 두면 언제든 설치를 다시 돌려 트윗과 미디어를 되살릴 수 있습니다.
 
+## 데이터 유지보수
+
+트윗이나 답글·인용 문맥에 `t.co` 링크가 남아 있으면, 후보 행을 내보내 링크를 다시 펼친 SQL을 만들 수 있습니다. 먼저 `X_BEARER_TOKEN`을 설정하고 아래 조회 결과를 `candidates.json`으로 저장한 뒤 스크립트를 실행하세요. 스크립트는 바뀐 텍스트만 SQL에 기록하며 채점하지 않습니다.
+
+```sql
+SELECT id, text, parent_id, parent_text, quoted_id, quoted_text
+FROM tweets
+WHERE text LIKE '%t.co/%'
+   OR parent_text LIKE '%t.co/%'
+   OR quoted_text LIKE '%t.co/%';
+```
+
+```bash
+npx wrangler d1 execute DB --remote --json --command "SELECT id, text, parent_id, parent_text, quoted_id, quoted_text FROM tweets WHERE text LIKE '%t.co/%' OR parent_text LIKE '%t.co/%' OR quoted_text LIKE '%t.co/%';" --config wrangler.INSTANCE.toml > candidates.json
+npm run repair-links -- --input candidates.json --output repair-links.sql --max-usd 1
+npx wrangler d1 execute DB --remote --file repair-links.sql --config wrangler.INSTANCE.toml
+```
+
+`DB`와 `INSTANCE`를 운영 설정에 맞는 이름으로 바꾸세요. `--max-usd`에 조회 비용 상한을 지정합니다. 삭제되었거나 조회할 수 없는 트윗은 건너뜁니다.
+
 ## 개발
 
 ```bash

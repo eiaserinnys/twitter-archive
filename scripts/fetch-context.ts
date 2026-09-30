@@ -1,12 +1,10 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { readJsonl, writeJsonl } from "../src/shared/jsonl.js";
+import { normalizeTweetText, tweetTextUrlEntities, type TweetUrlEntity } from "../src/shared/tweet-text.js";
 import type { NormalizedTweet, TweetContext } from "../src/shared/types.js";
 import { isDirectExecution, parseCliArgs, reportCliError, requiredString } from "./lib/cli.js";
-
-const POST_PRICE_USD = 0.005;
-const USER_PRICE_USD = 0.01;
-const POSTS_PER_REQUEST = 100;
+import { estimateXLookupCostUsd, X_POSTS_PER_REQUEST } from "./lib/x-api-cost.js";
 
 interface ContextTarget {
   id: string;
@@ -17,12 +15,20 @@ interface XPost {
   id: string;
   text?: string;
   author_id?: string;
-  note_tweet?: { text?: string };
+  entities?: { urls?: TweetUrlEntity[] };
+  note_tweet?: { text?: string; entities?: { urls?: TweetUrlEntity[] } };
 }
 
 interface XLookupResponse {
   data?: XPost[];
   includes?: { users?: Array<{ id: string; username: string }> };
+}
+
+function mediaUrls(tweet: XPost): Set<string> {
+  return new Set((tweet.entities?.urls ?? [])
+    .filter((url) => url.media_key)
+    .map((url) => url.url)
+    .filter((url): url is string => Boolean(url)));
 }
 
 export interface FetchContextOptions {
@@ -66,7 +72,7 @@ async function lookupBatch(
 ): Promise<XLookupResponse> {
   const params = new URLSearchParams({
     ids: ids.join(","),
-    "tweet.fields": "text,note_tweet,author_id",
+    "tweet.fields": "text,note_tweet,author_id,entities",
     expansions: "author_id",
     "user.fields": "username",
   });
@@ -94,9 +100,9 @@ export async function runFetchContext(options: FetchContextOptions): Promise<Fet
   let spentUsd = 0;
   let stoppedForBudget = false;
 
-  for (let offset = 0; offset < targets.length; offset += POSTS_PER_REQUEST) {
-    const batch = targets.slice(offset, offset + POSTS_PER_REQUEST);
-    const maximumBatchCost = batch.length * (POST_PRICE_USD + USER_PRICE_USD);
+  for (let offset = 0; offset < targets.length; offset += X_POSTS_PER_REQUEST) {
+    const batch = targets.slice(offset, offset + X_POSTS_PER_REQUEST);
+    const maximumBatchCost = estimateXLookupCostUsd(batch.length, batch.length);
     if (spentUsd + maximumBatchCost > options.maxUsd) {
       stoppedForBudget = true;
       break;
@@ -111,17 +117,19 @@ export async function runFetchContext(options: FetchContextOptions): Promise<Fet
         errors.push({ id: target.id, reason: "unavailable" });
         continue;
       }
-      const text = post.note_tweet?.text ?? post.text ?? "";
+      const noteText = post.note_tweet?.text;
+      const text = typeof noteText === "string" && noteText.length > 0 ? noteText : post.text ?? "";
+      const normalizedText = normalizeTweetText(text, tweetTextUrlEntities(post), mediaUrls(post));
       for (const { row, field } of target.contexts) {
         const context = row[field];
         if (!context) continue;
-        context.text = text;
+        context.text = normalizedText;
         if (field === "parent" && post.author_id) context.author = usernames.get(post.author_id) ?? context.author ?? "";
       }
     }
     const users = response.includes?.users ?? [];
     requestedPosts += posts.length;
-    spentUsd += posts.length * POST_PRICE_USD + users.length * USER_PRICE_USD;
+    spentUsd += estimateXLookupCostUsd(posts.length, users.length);
   }
 
   await writeJsonl(tweetsPath, tweets);

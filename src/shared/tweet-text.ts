@@ -1,6 +1,26 @@
 export interface TweetUrlEntity {
   url?: string;
   expanded_url?: string;
+  media_key?: string;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+export function tweetTextUrlEntities(tweet: unknown): TweetUrlEntity[] {
+  const post = record(tweet);
+  if (!post) return [];
+  const noteTweet = record(post.note_tweet);
+  const usesNoteText = nonEmptyString(noteTweet?.text);
+  const entities = record(usesNoteText ? noteTweet?.entities : post.entities);
+  return Array.isArray(entities?.urls)
+    ? entities.urls.filter((item): item is TweetUrlEntity => Boolean(record(item)))
+    : [];
 }
 
 export function decodeHtmlEntities(value: string): string {

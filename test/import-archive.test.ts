@@ -27,7 +27,7 @@ describe("archive normalization", () => {
     expect(original?.date_kst).toBe("2018-10-11");
     expect(original?.year).toBe(2018);
     expect(original?.month).toBe(10);
-    expect(rows.find((row) => row.id === "106")?.text).toBe("Long body <expanded>");
+    expect(rows.find((row) => row.id === "106")?.text).toBe("Long body <expanded> https://example.test/note");
   });
 
   it("records synthetic photo and video metadata with archive paths", () => {

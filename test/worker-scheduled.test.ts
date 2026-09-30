@@ -14,10 +14,12 @@ const v2Response = {
       created_at: "2024-03-30T15:30:00.000Z",
       text: "short preview",
       article: { title: "Synthetic article title", plain_text: "Synthetic article body from the API response." },
-      note_tweet: { text: "Long &amp; complete https://t.co/link https://t.co/photo" },
+      note_tweet: {
+        text: "Long &amp; complete https://t.co/link https://t.co/photo",
+        entities: { urls: [{ url: "https://t.co/link", expanded_url: "https://example.test/article" }] },
+      },
       entities: {
         urls: [
-          { url: "https://t.co/link", expanded_url: "https://example.test/article" },
           { url: "https://t.co/photo", expanded_url: "https://x.com/self/status/101/photo/1", media_key: "photo-key" },
         ],
       },
@@ -49,9 +51,25 @@ const v2Response = {
   ],
   includes: {
     tweets: [
-      { id: "900", author_id: "friend-id", text: "Parent &amp; body" },
+      {
+        id: "900",
+        author_id: "friend-id",
+        text: "Parent preview",
+        note_tweet: {
+          text: "Parent long body https://t.co/parent",
+          entities: { urls: [{ url: "https://t.co/parent", expanded_url: "https://example.test/parent" }] },
+        },
+      },
       { id: "101", author_id: "self", text: "Long original" },
-      { id: "800", author_id: "quoted-id", text: "Quoted body" },
+      {
+        id: "800",
+        author_id: "quoted-id",
+        text: "Quoted preview",
+        note_tweet: {
+          text: "Quoted long body https://t.co/quoted",
+          entities: { urls: [{ url: "https://t.co/quoted", expanded_url: "https://example.test/quoted" }] },
+        },
+      },
     ],
     users: [
       { id: "friend-id", username: "friend" },
@@ -124,9 +142,29 @@ describe("X API v2 collection normalization", () => {
       { url: "https://pbs.twimg.com/media/photo.jpg?format=jpg&name=large", contentType: "image/jpeg" },
       { url: "https://video.test/high.mp4", contentType: "video/mp4" },
     ]);
-    expect(rows[1].tweet.parent).toEqual({ id: "900", text: "Parent & body", author: "friend" });
+    expect(rows[1].tweet.parent).toEqual({ id: "900", text: "Parent long body https://example.test/parent", author: "friend" });
     expect(rows[2].tweet.parent).toEqual({ id: "101", text: "Long original", author: "archive-owner" });
-    expect(rows[3].tweet.quoted).toEqual({ id: "800", text: "Quoted body" });
+    expect(rows[3].tweet.quoted).toEqual({ id: "800", text: "Quoted long body https://example.test/quoted" });
+  });
+
+  it("continues to expand URLs from the top-level entities for short posts", () => {
+    const rows = normalizeV2Response({
+      data: [{
+        id: "105",
+        created_at: "2024-03-30T11:00:00.000Z",
+        text: "Short body https://t.co/short",
+        entities: { urls: [{ url: "https://t.co/short", expanded_url: "https://example.test/short" }] },
+      }],
+    }, "self");
+
+    expect(rows[0].tweet.text).toBe("Short body https://example.test/short");
+  });
+
+  it("expands note links in included parent and quoted posts", () => {
+    const rows = normalizeV2Response(v2Response, "self");
+
+    expect(rows[1].tweet.parent?.text).toBe("Parent long body https://example.test/parent");
+    expect(rows[3].tweet.quoted?.text).toBe("Quoted long body https://example.test/quoted");
   });
 });
 
