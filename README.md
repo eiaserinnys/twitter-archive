@@ -66,6 +66,8 @@ A self-hosted archive for a single X account. Browse by year and topic, search b
 | Cloudflare Access | 접근 제한. 사이트를 비공개로 두거나, 공개하면서 설정 화면만 소유자에게 열 때 씁니다 |
 | 등록 스크립트 (`scripts/`) | Node 22, tsx로 실행 |
 
+공개 운영에서는 Cloudflare Access 앱을 `/owner` 경로에만 적용합니다. 방문자는 공개 화면을 바로 보고, 소유자는 화면 우상단 로그인 버튼으로 Access 인증을 거쳐 들어옵니다.
+
 Worker 설정은 `wrangler.toml`의 공통 기본값, 인스턴스별 바인딩은 커밋하지 않는 `wrangler.local.toml`, 비밀값은 Cloudflare secrets 또는 `.dev.vars`에 둡니다. `wrangler.local.toml`에는 해당 배포의 D1 database ID와 R2 bucket 이름을 지정합니다.
 
 | 변수 | 용도 |
@@ -74,6 +76,7 @@ Worker 설정은 `wrangler.toml`의 공통 기본값, 인스턴스별 바인딩�
 | `OWNER_EMAILS` | 소유자 이메일 쉼표 목록 |
 | `OWNER_SERVICE_TOKEN_IDS` | 소유자 Access 서비스 토큰 client ID 쉼표 목록 |
 | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` | Access JWT issuer 도메인과 허용 audience 쉼표 목록 |
+| `ROBOTS_NOINDEX` | `1`이면 검색엔진 색인을 막고, 그 외에는 검색엔진 응답 헤더를 추가하지 않음 |
 | `SCORE_BATCH` | 주제 재채점 예상 시간 계산에 쓰는 분당 처리량 |
 | `SOURCE_URL` | 화면 하단 소스 링크. 빈 문자열이면 표시하지 않음 |
 | `X_USER_ID` | 수집할 X 계정의 숫자 사용자 ID |
@@ -93,6 +96,7 @@ SCORE_BATCH = "400"
 X_USER_ID = ""
 JEV_MONTHLY_USD_CAP = "5"
 SOURCE_URL = "https://github.com/example/twitter-archive"
+ROBOTS_NOINDEX = ""
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"

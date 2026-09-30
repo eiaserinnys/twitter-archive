@@ -82,6 +82,7 @@ export function baseTestEnv(DB: D1Database, overrides: Partial<Env> = {}): Env {
     OWNER_SERVICE_TOKEN_IDS: "",
     ACCESS_TEAM_DOMAIN: "",
     ACCESS_AUD: "",
+    ROBOTS_NOINDEX: "",
     SCORE_BATCH: "400",
     SOURCE_URL: "",
     X_USER_ID: "test",

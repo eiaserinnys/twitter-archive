@@ -80,6 +80,7 @@ a { color: inherit; }
   font: 700 13px/1 var(--mono); letter-spacing: .06em; color: var(--ink-2);
   transition: background var(--t-fast) linear, color var(--t-fast) linear;
 }
+.mast-actions a.theme-btn { display: inline-flex; align-items: center; text-decoration: none; }
 .theme-btn:hover { background: var(--ink); color: var(--bg); }
 .mast h1 {
   margin: 20px var(--pad) 0; font-size: clamp(32px, 12.5vw, 80px); line-height: .9; font-weight: 900;
