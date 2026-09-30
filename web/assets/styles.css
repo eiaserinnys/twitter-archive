@@ -689,14 +689,14 @@ button.day[aria-pressed="true"] .dt i { box-shadow: 0 0 0 1.5px var(--on-acid); 
 }
 @media (min-width: 1080px) {
   :root { --pad: 40px; --tabs-h: 56px; }
-  .mast { container-type: inline-size; display: grid; grid-template-columns: fit-content(54%) minmax(0, 3fr) minmax(0, 4fr); grid-template-rows: auto auto 1fr; }
+  .mast { container-type: inline-size; display: grid; grid-template-columns: fit-content(min(54%, 100% - 600px)) minmax(0, 3fr) minmax(0, 4fr); grid-template-rows: auto auto 1fr; }
   .mast-top { grid-column: 1; grid-row: 1; justify-content: flex-start; padding-top: 18px; }
   .mast h1 { grid-column: 1; grid-row: 2; min-width: calc(100cqw * 6 / 13 - 2 * var(--pad)); font-size: 80px; margin-top: 16px; }
   .handle { grid-column: 1; grid-row: 3; margin-bottom: 22px; align-self: start; }
   .stats { grid-column: 2; grid-row: 1 / span 3; grid-template-columns: 1fr; margin: 0; border-top: 0; border-left: 1px solid var(--rule); align-content: stretch; }
   .stats > div { display: flex; flex-direction: column; justify-content: flex-end; padding: 16px 24px; }
   .stats > div + div { border-left: 0; border-top: 1px solid var(--line); }
-  .stats dd { font-size: 34px; }
+  .stats dd { font-size: clamp(28px, 2.4vw, 34px); }
   .mast-actions { position: absolute; top: 18px; right: var(--pad); }
   .mast { position: relative; }
   .search { grid-column: 3; grid-row: 1 / span 3; flex-direction: row; align-items: flex-end; border-top: 0; border-left: 1px solid var(--rule); padding-bottom: 22px; padding-top: 70px; }
