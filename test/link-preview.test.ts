@@ -37,6 +37,19 @@ async function json(response: Response) {
 }
 
 describe("GET /api/link-preview", () => {
+  it("sends the preview User-Agent and decodes decimal and hexadecimal references", async () => {
+    const { db } = fixture();
+    const fetchMock = vi.fn(async (_input: string | URL, _init?: RequestInit) => new Response(
+      '<head><meta property="og:title" content="&#xc11c;&#50872; &#x1F331;"></head>',
+      { headers: { "Content-Type": "text/html" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await requestPreview(db);
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("User-Agent"))
+      .toBe("Mozilla/5.0 (compatible; twitter-archive-link-preview/1.0; +https://github.com/eiaserinnys/twitter-archive)");
+    expect(await json(response)).toMatchObject({ status: "ok", title: "서울 🌱" });
+  });
+
   it("fetches an OG card, resolves its image, and serves the saved row next time", async () => {
     const { db, sqlite, reads } = fixture();
     const fetchMock = vi.fn(async (input: string | URL) => String(input) === LINK
