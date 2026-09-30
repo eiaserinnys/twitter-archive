@@ -177,7 +177,7 @@ describe("TweetOut and cursor", () => {
       text: "A quoted post",
       parent: null,
       quoted: { id: "456", text: "Quoted text" },
-      article: { title: "Synthetic API title", text: "Synthetic API body." },
+      article: { title: "Synthetic API title", text: "Synthetic API body.", cover: null },
       media: [
         { type: "photo", url: "/media/2024/05/image.jpg", width: 640, height: 480, alt: "Image" },
         { type: "video", url: null, width: null, height: null, alt: null },

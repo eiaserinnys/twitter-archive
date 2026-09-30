@@ -479,6 +479,11 @@ dialog.confirm p { margin: 10px 0 18px; font-size: 16px; color: var(--ink-2); }
 /* Article and OG cards share the existing tweet typography and frame colors. */
 .tw-article, .tw-link { margin-top: calc(var(--pad) * .6); border: thin solid var(--line); }
 .tw-article, .tw-link-body { padding: calc(var(--pad) * .6); }
+.tw-article-cover {
+  display: block; width: calc(100% + var(--pad) * 1.2); max-height: calc(var(--pad) * 9);
+  object-fit: cover; margin: calc(var(--pad) * -.6) calc(var(--pad) * -.6) calc(var(--pad) * .6);
+}
+@media (min-width: 1080px) { .tw-article-cover { max-height: calc(var(--pad) * 8); } }
 .tw-article-title, .tw-link-title { display: block; font-size: inherit; line-height: inherit; }
 .tw-article-title { margin-top: calc(var(--pad) * .3); }
 .tw-article-body .tw-text { margin-top: calc(var(--pad) * .5); }

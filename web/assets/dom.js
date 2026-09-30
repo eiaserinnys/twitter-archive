@@ -130,6 +130,12 @@ export function tweetCard(tweet, ctx, { why, selectedTopic } = {}) {
   if (tweet.text && !(tweet.article && articleLink && tweet.text.trim() === articleLink.getAttribute('href'))) article.append(p);
   if (tweet.article) {
     const block = el('div', 'tw-article');
+    if (tweet.article.cover) {
+      const img = el('img', 'tw-article-cover');
+      img.alt = tweet.article.title; img.loading = 'lazy'; img.src = withBase(tweet.article.cover);
+      img.addEventListener('error', () => img.remove(), { once: true });
+      block.append(img);
+    }
     block.append(el('span', 'label', '아티클'), el('strong', 'tw-article-title', tweet.article.title));
     const body = el('div', 'tw-article-body');
     const toggle = el('button', 'btn', '펼치기'); toggle.type = 'button';
