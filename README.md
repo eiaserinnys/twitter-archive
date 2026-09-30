@@ -1,166 +1,243 @@
 # twitter-archive
 
-X(트위터) 계정 하나의 트윗 전체를 연도별, 주제별로 둘러보고 뜻으로 검색하는 셀프 호스팅 아카이브입니다. X 데이터 아카이브(zip)로 과거 트윗을 한 번에 들여오고, 그 뒤의 새 트윗은 X API로 주기적으로 따라잡습니다. Cloudflare Workers, D1, R2 위에서 돌고, 주제 분류와 검색에는 TypeSafe의 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)를 씁니다.
+X(트위터) 계정 하나의 트윗을 연도와 주제로 둘러보고, 기억나는 내용으로 찾아보는 자가 호스팅 아카이브입니다. 과거 트윗은 X 데이터 아카이브(zip)로 가져오고, 이후 새 트윗은 30분마다 X API로 모읍니다. 주제 분류와 검색에는 TypeSafe의 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)를 씁니다.
 
-A self-hosted archive for a single X account. Browse by year and topic, search by meaning. Runs on Cloudflare Workers, D1 and R2, with topic tagging and search powered by Jev.
+A self-hosted archive for one X account. Browse posts by year and topic, search them by meaning with Jev, and choose what visitors can see. Runs on Cloudflare Workers, D1 and R2, or on your own server with Node.js and SQLite.
 
-## 기능
+**시연**: [서소영 트윗 아카이브](https://seosoyoung.eiaserinnys.me/twitter/). AI 에이전트 서소영(@seosoyoung_ai)의 트윗으로 만든 방문자 화면입니다. 미리 정해 둔 문구로 검색해 볼 수 있습니다.
 
-- **연표**: 연도와 주제로 된 격자. 칸의 숫자는 그 해 그 주제의 트윗 수입니다. 연도를 누르면 월 단위로 펼쳐집니다.
-- **검색**: 소유자는 기억나는 문장을 자유 검색합니다. 방문자는 설정한 공개 문구만 사용할 수 있고, 결과는 데이터 버전별로 캐시합니다.
-- **오늘**: 몇 년 전 같은 날의 트윗과 날짜별 달력.
-- **기간 태그**: 경력, 그 무렵의 게임, 영화, 책 같은 것을 기간으로 표시해 연표 옆에 띄웁니다. 전체 기간 보기에서는 긴 태그만, 월 단위 보기에서는 짧은 태그까지 보입니다.
-- **공개 범위**: 보는 사람을 소유자와 방문자로 나눕니다. 주제별 숨김 점수와 트윗별 공개 설정으로 방문자 목록, 검색, 집계에서 트윗을 숨깁니다. 기간 태그도 공개와 소유자만으로 나눕니다.
-- **설정**: 주제(Jev에 묻는 문구와 공개 숨김 점수), 기간 태그, 공개 검색 문구를 화면에서 추가·수정·삭제합니다. 문구를 바꾼 주제는 그 주제만 다시 채점합니다.
-- **소스 코드**: 설정한 `SOURCE_URL`을 화면 하단에 표시합니다. 비워 두면 링크를 표시하지 않습니다.
-- **자동 수집**: 새 트윗을 주기적으로 가져와 미디어를 저장하고 채점합니다.
+![연도와 주제별 트윗 수를 보여 주는 연표](docs/screenshots/timeline.png)
 
-## 현재 상태
+<details>
+<summary>화면 더 보기</summary>
 
-- [x] 아카이브 등록 스크립트 (읽기, 답글 원글 보강, 주제 채점, D1 적재, 미디어 업로드)
-- [ ] 화면과 읽기 API, 설정, 공개 범위, 기간 태그
-- [ ] 자동 수집과 채점 대기열
-- [ ] 검색
+![한 해를 월별로 펼치고 주제를 고른 화면](docs/screenshots/month.png)
 
-## 주제 채점
+![소유자가 기억나는 내용으로 검색한 결과](docs/screenshots/search.png)
 
-트윗마다 Jev에 "이 트윗은 {문구}에 관한 이야기인가?"를 주제 수만큼 묻고, 돌아온 0~1 점수를 저장합니다. Jev는 문장을 생성하지 않고 확률만 돌려주는 모델이라 빠르고 쌉니다.
+![주제별 공개 숨김 기준을 고르는 설정 화면](docs/screenshots/settings.png)
 
-기본 주제는 `src/shared/topics.json`에 있습니다. 첫 적재 때 이 값이 D1 `topics` 테이블에 들어가고, 그 뒤로는 D1이 정본입니다.
+</details>
 
-기본 `sensitive` 주제는 정치적이거나 사회적으로 논쟁을 부를 수 있는 주장을 판정합니다. 점수 0.5 이상은 방문자에게 숨깁니다. 소유자는 주제별 문턱을 바꾸고 트윗마다 `자동`, `공개에서 숨김`, `항상 공개`를 선택할 수 있습니다.
+## 주요 기능
 
-| id | 표시 이름 | Jev에 묻는 문구 |
-|---|---|---|
-| politics | 정치 | 정치, 선거, 정책, 사회 문제 |
-| economy | 경제 | 경제, 투자, 주식, 부동산, 돈 |
-| work | 일 | 작성자 자신의 일이나 직장 |
-| games | 게임 | 비디오 게임, 카드 게임, 보드 게임 같은 게임을 하거나 즐기는 일, 게임 업계와 게임 문화 |
-| film | 영화와 드라마 | 실사 영화, 드라마, TV 프로그램 같은 영상 작품 |
-| anime | 애니와 만화 | 애니메이션(극장판 포함), 만화, 웹툰 |
-| books | 책 | 책, 독서, 소설 |
-| music | 음악 | 음악, 노래, 가수, 공연 |
-| tech | AI와 기술 | AI, 프로그래밍, IT 기술과 기기 |
-| sensitive | 민감 | 정치적이거나 사회적으로 논쟁을 부를 수 있는 주장이나 의견 |
-| family | 가족 | 작성자 본인의 가족(배우자, 아이, 부모) |
-| personal | 개인사 | 작성자 개인의 생활과 심경(이사, 건강, 하루 일과, 기분, 넋두리) |
-| creation | 창작 | 작성자가 직접 이야기, 캐릭터, 세계관, 글, 그림을 만들거나 만드는 법 |
-| review | 감상과 평 | 게임, 영화, 책, 애니 같은 작품을 보고 느낀 감상이나 평가 |
+- **연표**: 연도별로 어떤 주제를 얼마나 이야기했는지 칸마다 트윗 수로 보여 줍니다. 연도를 누르면 월별로 펼쳐집니다.
+- **주제별 보기**: 칸을 누르면 그 시기, 그 주제의 트윗을 모아 봅니다.
+- **뜻 검색**: 정확한 단어가 아니라 기억나는 내용으로 찾습니다.
+- **오늘**: 몇 년 전 같은 날의 트윗과 날짜별 달력입니다.
+- **아티클과 링크 카드**: X 아티클은 제목과 본문을 펼쳐 읽고, 트윗 속 링크에는 미리보기 카드를 붙입니다.
+- **기간 태그**: 경력이나 그때 즐긴 게임, 영화, 책에 기간을 붙여 연표와 함께 봅니다.
+- **공개 범위**: 주제별 기준과 트윗별 설정으로 방문자에게 보일 트윗을 고릅니다.
+- **자동 수집**: 새 트윗과 사진, 영상, 아티클 본문을 30분마다 가져와 채점합니다.
 
-- **기준점**: 연표와 주제 필터에는 0.7 이상만 셉니다. 검색에서 후보를 추릴 때는 놓치지 않도록 0.5 이상을 씁니다.
-- **검증**: 개발 중 한 계정의 트윗 100개에 사람이 직접 주제를 붙여 대조했습니다. 0.5 기준 종합 점수(F1)는 0.76이었고, 0.7 기준에서 붙은 주제의 84%가 맞았습니다.
-- **주제 문구 쓰는 법**: 맞는 경우만 적고 아닌 경우는 설명하지 않습니다. 너무 좁은 주제보다 여러 질의에 두루 쓰이는 주제가 낫습니다. 계정 주인의 직업처럼 특정 사람에게만 맞는 말은 설정에서 문구에 더하면 됩니다.
+## 시작하기 전에
 
-설계에 반영된 관찰 두 가지:
+한 사람이 자기 계정 하나를 보관하는 도구입니다. 설치 방법은 두 가지이고, 같은 설치 명령과 설정 파일을 씁니다.
 
-- Jev에 넘기는 글에 작성자 소개를 넣지 않습니다. 소개 한 줄이 들어가면 주제가 없는 짧은 글이 그 소개 쪽 주제로 끌려갑니다.
-- 트윗은 한 요청에 하나씩 채점합니다. 여러 개를 묶으면 몇 배 빨라지지만 옆 트윗의 주제가 번져 검색 후보를 놓치는 비율이 늘었습니다. 하나씩 해도 2만 개가 30분 남짓입니다.
+| | Cloudflare | 내 서버 |
+| :-- | :-- | :-- |
+| 실행 | Workers | Node.js 또는 Docker |
+| 저장 | D1, R2 | SQLite 파일과 폴더 |
+| 소유자 로그인 | Cloudflare Access 또는 비밀번호 | 비밀번호 |
+| 서버 관리 | 없음 | HTTPS와 백업을 직접 |
 
-## 구성
+공통 준비물:
 
-| 구성 요소 | 역할 |
-|---|---|
-| Cloudflare Worker (`src/worker/`) | 화면과 API |
-| D1 (`migrations/`) | 트윗, 미디어 정보, 주제 점수, 주제 정의, 기간 태그 |
-| R2 | 사진과 영상 파일 |
-| Cloudflare Access | 접근 제한. 사이트를 비공개로 두거나, 공개하면서 설정 화면만 소유자에게 열 때 씁니다 |
-| 등록 스크립트 (`scripts/`) | Node 22, tsx로 실행 |
+- Git, Node.js 22 이상, npm
+- X 데이터 아카이브 zip: X의 "설정 및 개인정보 > 내 계정 > 데이터 아카이브 다운로드"에서 받습니다. 없어도 설치할 수 있지만 그때는 X API가 돌려주는 최근 트윗 3,200개까지만 들어옵니다.
+- Jev API 키: 주제 분류와 검색이 Jev로 동작하므로 필요합니다. [TypeSafe](https://typesafe.ai)에서 발급합니다.
+- X API 토큰(선택): 새 트윗 자동 수집, 답글의 원글 채우기, 아티클 본문에 필요합니다. X 개발자 앱의 앱 전용 토큰(Bearer)을 씁니다.
 
-공개 운영에서는 Cloudflare Access 앱을 `/owner` 경로에만 적용합니다. 방문자는 공개 화면을 바로 보고, 소유자는 화면 우상단 로그인 버튼으로 Access 인증을 거쳐 들어옵니다.
+트윗과 미디어는 내 Cloudflare 계정이나 내 서버에 저장합니다. 다만 주제 분류와 검색을 할 때 트윗 글이 Jev API로 전달됩니다.
 
-Worker 설정은 `wrangler.toml`의 공통 기본값, 인스턴스별 바인딩은 커밋하지 않는 `wrangler.local.toml`, 비밀값은 Cloudflare secrets 또는 `.dev.vars`에 둡니다. `wrangler.local.toml`에는 해당 배포의 D1 database ID와 R2 bucket 이름을 지정합니다.
+## Cloudflare에 설치
 
-| 변수 | 용도 |
-|---|---|
-| `SITE_TITLE`, `ACCOUNT_HANDLE` | 화면 제목과 아카이브 계정명 (`@` 제외) |
-| `OWNER_EMAILS` | 소유자 이메일 쉼표 목록 |
-| `OWNER_SERVICE_TOKEN_IDS` | 소유자 Access 서비스 토큰 client ID 쉼표 목록 |
-| `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` | Access JWT issuer 도메인과 허용 audience 쉼표 목록 |
-| `ROBOTS_NOINDEX` | `1`이면 검색엔진 색인을 막고, 그 외에는 검색엔진 응답 헤더를 추가하지 않음 |
-| `SCORE_BATCH` | 주제 재채점 예상 시간 계산에 쓰는 분당 처리량 |
-| `SOURCE_URL` | 화면 하단 소스 링크. 빈 문자열이면 표시하지 않음 |
-| `X_USER_ID` | 수집할 X 계정의 숫자 사용자 ID |
-| `JEV_MONTHLY_USD_CAP` | Worker 채점의 월별 Jev 입력 비용 상한 (USD) |
+### 1. 소스와 API 토큰
 
-로컬 개발용 예시이며 값은 모두 가짜입니다:
-
-```toml
-[vars]
-SITE_TITLE = "Example Archive"
-ACCOUNT_HANDLE = "example"
-OWNER_EMAILS = "owner@example.invalid"
-OWNER_SERVICE_TOKEN_IDS = "example-client-id"
-ACCESS_TEAM_DOMAIN = "example.cloudflareaccess.com"
-ACCESS_AUD = "example-audience"
-SCORE_BATCH = "400"
-X_USER_ID = ""
-JEV_MONTHLY_USD_CAP = "5"
-SOURCE_URL = "https://github.com/example/twitter-archive"
-ROBOTS_NOINDEX = ""
-
-[version_metadata]
-binding = "CF_VERSION_METADATA"
+```bash
+git clone https://github.com/eiaserinnys/twitter-archive.git
+cd twitter-archive
+npm ci
 ```
 
-`CF_VERSION_METADATA`는 배포 ID를 집계 캐시 키에 넣어 새 Worker 버전에서 오래된 응답을 재사용하지 않도록 합니다.
+Cloudflare 대시보드의 "내 프로필 > API 토큰"에서 토큰을 만듭니다. 필요한 권한은 Workers 스크립트, D1, R2, Workers 경로 편집과 영역(Zone) 읽기입니다. Access로 소유자 로그인을 만들려면 Access 앱과 정책 편집도 더합니다. 권한이 모자라면 설치가 해당 호출에서 멈추고 실패한 요청을 알려 줍니다.
 
-`.dev.vars`에서 `DEV_OWNER=1`을 설정하면 로컬에서만 소유자 화면을 확인할 수 있습니다. 이 변수를 `wrangler.toml`에 넣지 마세요.
+### 2. 설정 파일
+
+인스턴스 이름을 하나 정하고 예시 파일을 복사합니다. `instances/`는 커밋되지 않습니다.
+
+```bash
+mkdir -p instances/my-archive
+cp instance.example.json instances/my-archive/config.json
+```
+
+| 항목 | 뜻 |
+| :-- | :-- |
+| `worker_name` | Worker 이름. D1과 R2 이름의 기본값도 됩니다 |
+| `domain` | 비우면 `workers.dev` 주소. `hostname`만 쓰면 그 주소 전체를 씁니다. `path`(예: `/twitter`)를 함께 쓰면 기존 사이트의 하위 경로에 붙습니다 |
+| `vars` | 화면 제목, 계정명, 소유자 이메일 같은 설정. 아래 [설정](#설정) 표 참고 |
+| `archive` | X 데이터 아카이브 zip 경로 |
+| `fetch_context_max_usd` | 답글의 원글과 인용한 글을 X API로 채울 때 쓸 최대 금액. 0이면 건너뜁니다 |
+| `score_max_usd` | 설치 중 과거 트윗 채점에 쓸 최대 Jev 금액. 기본 2달러. 아카이브의 과거 트윗은 설치 중에만 채점되므로 0으로 두면 연표에 주제가 잡히지 않습니다 |
+| `access` | 있으면 소유자 로그인용 Access 앱을 만듭니다. `policy_ids`에 붙일 재사용 정책 ID를 적습니다 |
+
+하위 경로에 붙일 때는 그 호스트의 DNS 레코드가 Cloudflare 프록시(주황 구름)를 거치게 되어 있어야 합니다.
+
+### 3. 설치 실행
+
+비밀값은 설정 파일이 아니라 환경변수로 넘깁니다. 먼저 `--dry-run`으로 무엇을 만들지 확인합니다.
+
+```bash
+export CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=...
+export TYPESAFE_BASE_URL=... TYPESAFE_API_KEY=...
+export X_BEARER_TOKEN=...          # 선택
+
+npm run setup -- --instance my-archive --dry-run
+npm run setup -- --instance my-archive
+```
+
+설치는 이 순서로 진행합니다.
+
+1. D1 데이터베이스와 R2 버킷을 찾고, 없으면 만듭니다.
+2. `wrangler.toml`을 바탕으로 이 인스턴스의 `wrangler.my-archive.toml`을 만듭니다.
+3. D1 스키마를 적용합니다.
+4. 아카이브가 있으면 트윗을 읽고, 원글을 채우고, 채점한 뒤 D1과 R2에 올립니다. 없으면 기본 주제만 넣습니다.
+5. Access 앱을 만들고(설정한 경우) Worker를 배포한 뒤 비밀값을 등록합니다.
+6. 사이트 주소의 상태 확인과 트윗 수를 출력합니다.
+
+중간에 멈추거나 채점 금액 상한에 닿으면 같은 명령을 다시 실행합니다. 끝난 작업은 건너뛰고, 소유자가 화면에서 바꾼 트윗 공개 설정과 주제 설정은 덮어쓰지 않습니다.
+
+### 4. 확인
+
+출력된 주소를 열면 방문자 화면이 보입니다. 우상단 로그인으로 들어가면 소유자 화면입니다. 아카이브 없이 설치했다면 첫 수집이 30분 안에 최근 트윗을 가져옵니다. 새로 만든 Worker는 예약 작업이 걸리기까지 15분쯤 더 걸릴 수 있습니다.
+
+## 내 서버에 설치
+
+설정 파일에 `"target": "node"`를 넣으면 Cloudflare 대신 SQLite 파일과 폴더에 저장합니다. 소유자 로그인은 비밀번호로 합니다.
+
+```json
+{
+  "worker_name": "my-archive",
+  "target": "node",
+  "vars": {
+    "SITE_TITLE": "나의 트윗 아카이브",
+    "ACCOUNT_HANDLE": "your_handle",
+    "OWNER_AUTH": "password"
+  },
+  "archive": "path/to/your-archive.zip"
+}
+```
+
+```bash
+export OWNER_PASSWORD='12자 이상의 비밀번호'
+export TYPESAFE_BASE_URL=... TYPESAFE_API_KEY=...
+export X_BEARER_TOKEN=...          # 선택
+
+npm run setup -- --instance my-archive
+INSTANCE=my-archive docker compose up -d --build
+```
+
+Docker 없이 실행하려면 `npm run serve -- --instance my-archive`를 씁니다. 두 방법 모두 `127.0.0.1:8787`에서만 열립니다. 밖에서 접속하려면 Caddy나 nginx 같은 리버스 프록시로 HTTPS를 붙입니다. 하위 경로로 붙일 때는 설정 파일의 `domain.path`에 그 경로를 적습니다.
+
+데이터는 `instances/my-archive/runtime/`(SQLite 파일과 미디어 폴더)에 있습니다. 이 폴더를 백업하면 됩니다. 비밀값은 설치가 만든 `instances/my-archive/.env`(권한 600)에 들어갑니다.
+
+## 방문자와 소유자
+
+| 기능 | 방문자 | 소유자 |
+| :-- | :-- | :-- |
+| 연표와 트윗 목록 | 공개된 트윗만 | 숨긴 트윗까지 |
+| 검색 | 소유자가 정한 문구를 골라 검색 | 문장을 직접 입력 |
+| 트윗 공개 설정 | 볼 수 없음 | 트윗마다 자동, 공개에서 숨김, 항상 공개 |
+| 주제, 기간 태그, 공개 검색 문구 | 볼 수 없음 | 화면에서 편집 |
+
+방문자 검색은 Jev 호출 비용이 들기 때문에 소유자가 정한 문구만 쓰게 했습니다. 문구마다 첫 검색 결과를 새 트윗이 들어올 때까지 저장해 둡니다. `VISITOR_SEARCH`를 `off`로 두면 방문자 검색을 아예 닫습니다.
+
+기본 주제 중 **민감**은 정치적이거나 사회적으로 논쟁을 부를 수 있는 주장을 판정합니다. 기본 설정에서는 이 주제 점수가 0.5 이상인 트윗을 방문자에게 숨기고, 연표에는 민감 칸을 표시하지 않습니다. 기준은 설정 화면의 슬라이더로 바꾸고, 판정이 틀린 트윗은 트윗마다 직접 고칩니다. 자동 판정은 틀릴 수 있으니 공개하기 전에 소유자 화면에서 한 번 훑어보기를 권합니다.
+
+## 설정
+
+설정 파일의 `vars`에 적습니다. 설치가 채우는 값은 따로 적지 않아도 됩니다.
+
+| 변수 | 뜻 | 기본값 |
+| :-- | :-- | :-- |
+| `SITE_TITLE` | 화면 제목 | `Tweet Archive` |
+| `ACCOUNT_HANDLE` | 계정명(`@` 제외) | 없음 |
+| `X_USER_ID` | 계정의 숫자 ID. 비우면 설치가 아카이브나 X API에서 찾습니다 | 설치가 채움 |
+| `OWNER_AUTH` | 소유자 로그인 방식. `access` 또는 `password` | `access` |
+| `OWNER_EMAILS` | Access로 들어올 소유자 이메일(쉼표로 구분) | 없음 |
+| `OWNER_SERVICE_TOKEN_IDS` | 소유자로 인정할 Access 서비스 토큰의 클라이언트 ID. 스크립트로 소유자 API를 쓸 때 | 없음 |
+| `ACCESS_TEAM_DOMAIN` | Zero Trust 팀 도메인. 비우면 설치가 조회합니다 | 설치가 채움 |
+| `ACCESS_AUD` | Access 앱 식별값 | 설치가 채움 |
+| `BASE_PATH` | 하위 경로 | `domain.path`에서 채움 |
+| `VISITOR_SEARCH` | 방문자 검색. `presets` 또는 `off` | `presets` |
+| `SEARCH_DAILY_LIMIT` | 방문자 검색의 하루 Jev 호출 한도 | `200` |
+| `JEV_MONTHLY_USD_CAP` | 자동 채점의 월 Jev 비용 상한(달러) | `5` |
+| `ROBOTS_NOINDEX` | `1`이면 검색엔진 색인을 막습니다 | 빈 값 |
+| `SOURCE_URL` | 화면 아래 소스 링크. 비우면 표시하지 않습니다 | 이 리포 |
+
+비밀값은 환경변수로만 넘깁니다. Cloudflare에서는 Worker 비밀값으로, 내 서버에서는 `.env` 파일로 들어갑니다.
+
+| 비밀값 | 뜻 |
+| :-- | :-- |
+| `TYPESAFE_BASE_URL`, `TYPESAFE_API_KEY` | Jev 호출 |
+| `X_BEARER_TOKEN` | X API 앱 전용 토큰 |
+| `OWNER_PASSWORD` | 비밀번호 로그인(12자 이상). 바꾸면 기존 로그인이 모두 풀립니다 |
+
+기본 주제 14개는 [`src/shared/topics.json`](src/shared/topics.json)에 있고, 처음 설치할 때 들어갑니다. 이후에는 설정 화면에서 추가하고 고칩니다. 주제 문구를 바꾸면 그 주제만 다시 채점합니다. 처음부터 다른 주제로 시작하려면 같은 형식의 파일을 만들어 설정 파일의 `topics`에 경로를 적습니다.
 
 ## 자동 수집과 채점
 
-Worker는 30분마다 X API에서 새 트윗을 최대 32페이지까지 가져오고, 매분 현재 버전 점수가 빠진 주제를 채점합니다. 최초 실행은 아카이브 적재 때 저장한 `max_tweet_id` 뒤부터 시작하며, 그 값도 없으면 최근 트윗 100개를 가져옵니다. 32페이지 뒤에도 수집할 트윗이 남으면 경고를 기록하며, 누락 구간은 X 데이터 아카이브를 다시 다운로드해 등록하면 메울 수 있습니다. 월별 Jev 비용이 `JEV_MONTHLY_USD_CAP`에 도달하면 해당 월의 채점을 멈춥니다.
+30분마다 X API에서 새 트윗을 가져오고 사진과 영상을 저장한 뒤 채점합니다. 한 번에 최대 3,200개까지 가져옵니다. 아카이브로 설치했다면 아카이브의 마지막 트윗 다음부터 시작합니다. 아티클을 올린 트윗은 제목과 본문을 함께 저장하고, 링크만 남아 있던 예전 아티클도 같은 때 채웁니다.
 
-`.dev.vars` 또는 Worker secrets에는 `X_BEARER_TOKEN`, `TYPESAFE_BASE_URL`, `TYPESAFE_API_KEY`를 설정합니다. `X_USER_ID`와 비용 상한은 일반 Worker 변수로 둡니다.
+채점은 트윗마다 Jev에 "이 트윗은 이 주제에 관한 이야기인가?"를 물어 0에서 1 사이 점수를 받는 방식입니다. 연표에는 0.7 이상만 세고, 검색 후보는 놓치지 않도록 0.5 이상에서 고릅니다. 자동 채점 비용이 `JEV_MONTHLY_USD_CAP`에 닿으면 그달의 자동 채점을 멈춥니다.
 
-## 아카이브 등록
+## 비용
 
-X 설정의 "데이터 아카이브 다운로드"로 받은 zip을 준비합니다. 스크립트는 작업 데이터를 `--data-dir`(기본 `./data`, 커밋 제외)에만 씁니다. 로컬 확인은 `--local`, 실제 배포 대상은 `--remote`입니다.
+| 항목 | 드는 때 | 단가 |
+| :-- | :-- | :-- |
+| X API 게시물 읽기 | 새 트윗 수집, 답글의 원글 채우기(선택), 아티클 본문 | 건당 $0.005 |
+| X API 사용자 조회 | `X_USER_ID`를 비우고 아카이브 없이 설치할 때 한 번 | $0.01 |
+| Jev | 채점과 검색 | 입력 100만 토큰당 $0.042 |
+| Cloudflare Workers, D1, R2 | Cloudflare 설치 | 무료 한도 안에서는 0 |
 
-```bash
-npm install
+트윗 2만 개 계정에서 잰 값입니다(2026년 9월 단가, 기본 주제 14개).
 
-# 1. DB 스키마
-npx wrangler d1 migrations apply DB --local
+- 설치 때 답글의 원글 채우기: $20~35. 답글이 많을수록 늘고, 건너뛸 수 있습니다.
+- 설치 때 전체 채점: 약 $1
+- 새 트윗 수집: 한 달 $0.5 안팎
 
-# 2. 아카이브 읽기: 리트윗을 빼고 링크와 미디어를 정리해 tweets.jsonl로
-npx tsx scripts/import-archive.ts --archive <zip 또는 풀린 폴더> --data-dir ./data
+트윗과 사진이 많으면 Cloudflare 무료 한도가 빠듯할 수 있습니다. 한도와 요금은 [Workers](https://developers.cloudflare.com/workers/platform/pricing/), [D1](https://developers.cloudflare.com/d1/platform/pricing/), [R2](https://developers.cloudflare.com/r2/pricing/) 문서에서 확인하세요. X API 단가는 [X 가격 안내](https://docs.x.com/x-api/getting-started/pricing)를 따릅니다.
 
-# 3. 답글의 원글과 인용한 글 채우기 (X API, 비용 상한 지정)
-X_BEARER_TOKEN=... npx tsx scripts/fetch-context.ts --data-dir ./data --max-usd 40
+## 자주 묻는 질문
 
-# 4. 주제 채점 (Jev). --dry-run이면 요청 없이 넘길 글만 만들어 봅니다
-TYPESAFE_BASE_URL=... TYPESAFE_API_KEY=... npx tsx scripts/score.ts --data-dir ./data --max-usd 2
+**X API 없이 쓸 수 있나요?**
+아카이브 zip만으로 과거 트윗과 미디어는 모두 들어옵니다. 새 트윗 자동 수집, 답글의 원글, 아티클 본문만 빠집니다.
 
-# 5. D1 적재 (트윗, 점수, 미디어 정보, 주제 초깃값)
-npx tsx scripts/load-d1.ts --data-dir ./data --local
+**무엇이 들어가나요?**
+내 트윗, 답글, 인용, 사진, 영상, GIF, 아티클입니다. 리트윗과 DM은 넣지 않습니다.
 
-# 6. 미디어 파일을 R2로
-npx tsx scripts/upload-media.ts --archive <zip 또는 풀린 폴더> --data-dir ./data --local
-```
+**설치가 중간에 멈췄어요.**
+같은 명령을 다시 실행하세요. 이미 끝난 단계는 건너뜁니다.
 
-3번과 4번은 처리한 트윗을 건너뛰므로 중간에 멈춰도 다시 실행하면 이어집니다.
-`score.ts`와 `load-d1.ts`에는 인스턴스별 주제 설정 파일을 `--topics <path>`로 지정할 수 있습니다. 생략하면 `src/shared/topics.json`을 사용합니다.
+**새 트윗이 연표에 안 보여요.**
+수집은 30분마다, 채점은 그 직후에 합니다. 연표는 주제 점수 0.7 이상만 세므로 주제가 뚜렷하지 않은 트윗은 칸에 잡히지 않고 최근 트윗 목록에만 보입니다.
 
-| 환경변수 | 용도 |
-|---|---|
-| `X_BEARER_TOKEN` | X API 앱 전용 토큰. 공개 계정이면 어느 개발자 앱의 토큰이든 됩니다 |
-| `TYPESAFE_BASE_URL`, `TYPESAFE_API_KEY` | Jev 호출 |
+**오래된 빈 구간을 채우고 싶어요.**
+X 데이터 아카이브를 새로 받아 설정 파일의 `archive`를 바꾸고 설치를 다시 실행하세요. 이미 있는 트윗은 그대로 두고 빠진 트윗만 더합니다.
 
-비밀값은 셸 환경이나 Worker secrets로만 넘기고 커밋하지 않습니다. 이 리포에는 코드만 두고, 트윗 데이터와 미디어는 넣지 않습니다. 테스트는 합성한 아카이브만 씁니다.
-
-## 비용 (2026년 9월 단가)
-
-| 항목 | 단가 | 2만 개 계정 기준 |
-|---|---|---|
-| X API 게시물 읽기 | 건당 $0.005 | 답글 원글 보강 한 번 $20~35, 새 트윗 수집 한 달 $0.5 안팎 |
-| Jev | 입력 100만 토큰당 $0.042 | 전체 채점 한 번 약 $1 |
-
-X 데이터 아카이브 자체는 무료입니다.
+**백업과 복원은 어떻게 하나요?**
+Cloudflare 설치는 `npx wrangler d1 export DB --remote --output backup.sql --config wrangler.<이름>.toml`로 DB를 내보내고 R2 버킷을 복사해 둡니다. 복원할 때는 빈 D1에 `npx wrangler d1 execute DB --remote --file backup.sql --config wrangler.<이름>.toml`로 되돌리고 R2 파일을 다시 올립니다. 내 서버 설치는 `instances/<이름>/runtime/` 폴더를 통째로 복사하고, 복원할 때 그 폴더를 되돌린 뒤 다시 실행합니다. 원본 아카이브 zip도 함께 보관해 두면 언제든 설치를 다시 돌려 트윗과 미디어를 되살릴 수 있습니다.
 
 ## 개발
 
 ```bash
-npm install
-npm test            # vitest, 합성 아카이브 픽스처
+npm ci
+npm test            # 합성 아카이브로 돌리는 테스트
 npx tsc --noEmit    # 타입 검사
 ```
+
+테스트는 만든 가짜 데이터만 씁니다. 실제 트윗, 미디어, 비밀값은 리포에 넣지 않습니다. 버그와 제안은 Issue로, 작은 수정은 PR로 보내 주세요.
+
+## 라이선스
+
+[MIT](LICENSE)
