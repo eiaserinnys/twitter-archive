@@ -1,16 +1,71 @@
 import { describe, expect, it } from "vitest";
-// Browser-native module is tested directly, without loading the timeline DOM.
+// Browser-native modules are tested without creating the timeline DOM.
 // @ts-expect-error Browser assets are outside the TypeScript source tree.
-import { heatmapLevel } from "../web/assets/heatmap.js";
+import { heatmapLevel, heatmapThresholds } from "../web/assets/heatmap.js";
 
-describe("table-relative heatmap levels", () => {
-  it("keeps zeros empty and maps hundreds by their table maximum", () => {
-    expect([0, 1, 100, 101, 200, 201, 300, 301, 400, 401, 500].map(count => heatmapLevel(count, 500)))
-      .toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]);
+Object.defineProperty(globalThis, "matchMedia", {
+  configurable: true,
+  value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+});
+Object.defineProperty(globalThis, "sessionStorage", {
+  configurable: true,
+  value: { getItem: () => null, setItem() {} },
+});
+// @ts-expect-error Browser assets are outside the TypeScript source tree.
+const { heatmapLegendLabels } = await import("../web/assets/timeline.js");
+
+describe("nearest-rank table-relative heatmap levels", () => {
+  it("splits the 250-cell reference distribution across five levels", () => {
+    const counts = [
+      ...Array.from({ length: 50 }, (_, index) => 1 + index % 5),
+      ...Array.from({ length: 50 }, (_, index) => 6 + index % 8),
+      ...Array.from({ length: 50 }, (_, index) => 14 + index % 25),
+      ...Array.from({ length: 49 }, (_, index) => 39 + index % 42),
+      81, 81,
+      ...Array.from({ length: 48 }, (_, index) => 82 + index),
+      489,
+    ];
+    const thresholds = heatmapThresholds(counts);
+
+    expect(counts).toHaveLength(250);
+    expect(thresholds).toEqual([5, 13, 38, 81]);
+    expect(counts.reduce((levels, count) => {
+      levels[heatmapLevel(count, thresholds)] += 1;
+      return levels;
+    }, [0, 0, 0, 0, 0, 0])).toEqual([0, 50, 50, 50, 51, 49]);
   });
-  it("uses an independent maximum for each table", () => {
-    expect(heatmapLevel(100, 500)).toBe(1);
-    expect(heatmapLevel(100, 100)).toBe(5);
-    expect(heatmapLevel(0, 0)).toBe(0);
+
+  it("ignores zero cells when finding thresholds and keeps them at level zero", () => {
+    const thresholds = heatmapThresholds([0, 2, 0]);
+
+    expect(thresholds).toEqual([2, 2, 2, 2]);
+    expect(heatmapLevel(0, thresholds)).toBe(0);
+    expect(heatmapThresholds([0, 0])).toEqual([0, 0, 0, 0]);
+  });
+
+  it("keeps repeated nearest-rank thresholds and skips their empty levels", () => {
+    const thresholds = heatmapThresholds([0, 2, 2, 2, 2, 2, 9]);
+
+    expect(thresholds).toEqual([2, 2, 2, 2]);
+    expect([0, 2, 9].map(count => heatmapLevel(count, thresholds))).toEqual([0, 1, 5]);
+  });
+
+  it("handles a table with one nonzero cell", () => {
+    const thresholds = heatmapThresholds([0, 7]);
+
+    expect(thresholds).toEqual([7, 7, 7, 7]);
+    expect([0, 7].map(count => heatmapLevel(count, thresholds))).toEqual([0, 1]);
+  });
+
+  it("labels the reference ranges and renders empty or single-value ranges", () => {
+    expect(heatmapLegendLabels([5, 13, 38, 81], 489)).toEqual([
+      "0", "1~5", "6~13", "14~38", "39~81", "82~489",
+    ]);
+    expect(heatmapLegendLabels([1, 1, 2, 2], 3)).toEqual([
+      "0", "1", "–", "2", "–", "3",
+    ]);
+    expect(heatmapLegendLabels([0, 0, 0, 0], 0)).toEqual([
+      "0", "–", "–", "–", "–", "–",
+    ]);
   });
 });
