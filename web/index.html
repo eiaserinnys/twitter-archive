@@ -68,7 +68,7 @@
             </table>
           </div>
           <div class="tagstrip" id="allTags"></div>
-          <div class="legend"><span class="label">트윗 수</span><ul class="ramp" aria-label="칸 진하기 범례"></ul><span class="hint">연도를 누르면 그 해의 월 연표</span></div>
+          <div class="legend"><span class="label">트윗 수</span><ul class="ramp" aria-label="칸 진하기 범례"></ul><span class="heatmap-max label"></span><span class="hint">연도를 누르면 그 해의 월 연표</span></div>
           <p class="foot" id="tlFoot"></p>
         </div>
         <div id="yearView" hidden>
@@ -90,7 +90,7 @@
             </table>
           </div>
           <div class="tagstrip" id="yearTags"></div>
-          <div class="legend"><span class="label">트윗 수</span><ul class="ramp" aria-label="칸 진하기 범례"></ul></div>
+          <div class="legend"><span class="label">트윗 수</span><ul class="ramp" aria-label="칸 진하기 범례"></ul><span class="heatmap-max label"></span></div>
           <p class="foot" id="yvFoot"></p>
         </div>
       </div>
@@ -195,7 +195,6 @@
         <h4 class="tform-title" id="tpTitle">새 주제</h4>
         <label class="f"><span class="fl">표시 이름</span><input type="text" id="tpName" maxlength="40" autocomplete="off" required></label>
         <label class="f"><span class="fl">Jev에 묻는 문구</span><textarea id="tpPrompt" rows="3" maxlength="200" placeholder="주제에 해당하는 트윗을 설명해 주세요"></textarea></label>
-        <label class="f"><span class="fl">공개 버전에서 숨길 점수</span><input type="number" id="tpHide" min="0" max="1" step="any" placeholder="비우면 숨기지 않음"></label>
         <p class="f-err" id="tpErr" role="alert" hidden></p>
         <div class="f-actions"><button class="btn acid" type="submit">저장</button><button class="btn" id="tpCancel" type="button">취소</button></div>
       </form>

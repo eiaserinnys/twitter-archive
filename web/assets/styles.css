@@ -328,8 +328,13 @@ dialog::backdrop { background: var(--scrim); }
 .acts button { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); font-size: 14px; font-weight: 700; }
 .acts button:hover, .acts button.armed { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .toprow .prompt { margin: 8px 0 12px 22px; font: 500 13px/1.5 var(--mono); letter-spacing: 0; word-spacing: -0.2em; color: var(--ink-3); }
-.toprow .hide-threshold { margin: -6px 0 10px 22px; font: 700 12px/1.4 var(--mono); color: var(--acid-text); }
-:root[data-theme="light"] .toprow .hide-threshold { color: var(--ink-2); }
+.public-hide { margin-top: calc(var(--pad) / 2); }
+.hide-controls { display: flex; align-items: center; gap: calc(var(--pad) / 2); }
+.hide-controls > span { white-space: nowrap; }
+.hide-controls input { flex: 1; min-width: 0; margin: 0; accent-color: var(--acid); }
+.hide-controls output { flex: none; }
+.hide-preview { margin: calc(var(--pad) / 2) 0 0; color: var(--ink-2); }
+.hide-preview:empty { display: none; }
 .vis-row { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 8px; margin: 6px 0 0 22px; }
 .fl { font: 700 13px/1.2 var(--mono); letter-spacing: .02em; word-spacing: -0.2em; color: var(--ink-3); }
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); }

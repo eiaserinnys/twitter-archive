@@ -1,8 +1,7 @@
 import { get, ApiError } from './api.js';
+import { heatmapLevel } from './heatmap.js';
 import { $, el, pad, dateMs, dimOf, tagKinds, tagKind, tagTopics, tagSpan, periodText, lockIcon, tweetCard } from './dom.js';
 
-const levels = [0, 1, 2, 4, 7, 11];
-const level = value => levels.reduce((out, min, index) => value >= min ? index : out, 0);
 const desktop = matchMedia('(min-width: 1080px)');
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -88,6 +87,13 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
   }
 
   function buildGrid(table, rows, rowData, corner, tracks) {
+    const max = Math.max(0, ...rows.flatMap(row => ctx.topics.map(topic => rowData(row).counts[topic.id] || 0)));
+    const legend = table.closest('.grid-wrap').parentElement.querySelector('.legend');
+    const ramp = legend.querySelector('.ramp');
+    ramp.replaceChildren(...['0', '~20%', '~40%', '~60%', '~80%', '~100%'].map((label, index) => {
+      const item = el('li', null, label); item.dataset.l = index; return item;
+    }));
+    legend.querySelector('.heatmap-max').textContent = `최대 ${max}개 기준`;
     const cols = table.querySelector('colgroup'), head = table.tHead.rows[0], body = table.tBodies[0];
     cols.replaceChildren(); head.replaceChildren(); body.replaceChildren();
     if (tracks) {
@@ -115,7 +121,7 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
         const td = el('td'), count = data.counts[topic.id] || 0;
         const cell = el(count ? 'button' : 'span', 'cell', count ? String(count) : '');
         if (count) cell.type = 'button'; else cell.append(el('span', 'sr-only', '트윗 없음'));
-        cell.dataset.l = level(count); cell.dataset.r = row; cell.dataset.t = topic.id;
+        cell.dataset.l = heatmapLevel(count, max); cell.dataset.r = row; cell.dataset.t = topic.id;
         cell.setAttribute('aria-label', `${row}${corner === '월' ? '월' : '년'} ${topic.label} ${count}개`);
         td.append(cell); tr.append(td); cells[row][topic.id] = cell;
       });
@@ -411,9 +417,6 @@ export function createTimeline(ctx, { navigate, openSettings, searchFor }) {
   $('yearAllBtn').addEventListener('click', event => select({ y: year }, event.currentTarget));
   $('prevBtn').addEventListener('click', () => { const next = shift(selection, -1); if (next) select(next); });
   $('nextBtn').addEventListener('click', () => { const next = shift(selection, 1); if (next) select(next); });
-  document.querySelectorAll('.ramp').forEach(ramp => ['0', '1', '2~3', '4~6', '7~10', '11+'].forEach((label, index) => {
-    const item = el('li', null, label); item.dataset.l = index; ramp.append(item);
-  }));
 
   renderAll(); syncLayout();
   return {
