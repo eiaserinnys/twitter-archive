@@ -7,6 +7,7 @@ import {
   type Viewer,
 } from "./auth.js";
 import type { Env } from "./env.js";
+import { mediaResponse } from "./media-response.js";
 import meRoute from "./routes/me.js";
 import metaRoute from "./routes/meta.js";
 import timelineRoute from "./routes/timeline.js";
@@ -108,12 +109,7 @@ app.get("/robots.txt", async (context) => {
 });
 app.get("/media/*", async (context) => {
   const key = decodeURIComponent(context.req.path.slice("/media/".length));
-  const object = key ? await context.env.MEDIA.get(key) : null;
-  if (!object) return context.json({ error: "not_found" }, 404);
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set("Cache-Control", "public, max-age=31536000, immutable");
-  return new Response(object.body, { headers });
+  return mediaResponse(context.env.MEDIA, key, context.req.header("Range"));
 });
 
 app.notFound((context) => context.req.path.startsWith("/api/")

@@ -1,5 +1,6 @@
 import type { NormalizedTweet, TweetContext, TweetKind, TweetMedia } from "../shared/types.js";
 import { normalizeTweetText, tweetTextUrlEntities, type TweetUrlEntity } from "../shared/tweet-text.js";
+import { highestBitrateMp4 } from "../shared/video-variant.js";
 
 interface RawTweet {
   [key: string]: unknown;
@@ -144,7 +145,9 @@ function tweetKind(tweet: RawTweet, accountId: string, text: string): TweetKind 
 function mediaRows(tweet: RawTweet, id: string): TweetMedia[] {
   return mediaSource(tweet).map((media) => {
     const type = media.type === "animated_gif" ? "animated_gif" : media.type === "video" ? "video" : "photo";
-    const mediaUrl = stringValue(media.media_url_https) ?? stringValue(media.media_url) ?? "";
+    const mediaUrl = type === "photo"
+      ? stringValue(media.media_url_https) ?? stringValue(media.media_url) ?? ""
+      : highestBitrateMp4(objectRecord(media.video_info)?.variants) ?? "";
     const filename = mediaUrl.split("?")[0].split("/").pop() ?? "media";
     const sizes = media.sizes && typeof media.sizes === "object" ? media.sizes as Record<string, unknown> : {};
     const large = sizes.large && typeof sizes.large === "object" ? sizes.large as Record<string, unknown> : {};
@@ -152,7 +155,7 @@ function mediaRows(tweet: RawTweet, id: string): TweetMedia[] {
     const height = typeof large.h === "number" ? large.h : undefined;
     return {
       type,
-      archive_path: `data/tweets_media/${id}-${filename}`,
+      ...(mediaUrl ? { archive_path: `data/tweets_media/${id}-${filename}` } : {}),
       r2_key: null,
       width,
       height,

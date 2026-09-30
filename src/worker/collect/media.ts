@@ -1,6 +1,11 @@
 import type { TweetMedia } from "../../shared/types.js";
 import type { Env } from "../env.js";
 
+/** R2 needs a known-length stream. Fetch bodies retain their Content-Length. */
+export async function mediaBody(response: Response): Promise<ReadableStream<Uint8Array> | ArrayBuffer> {
+  return response.body && response.headers.has("content-length") ? response.body : response.arrayBuffer();
+}
+
 export function mediaExtension(media: Pick<TweetMedia, "type">, url: string): string {
   if (media.type !== "photo") return "mp4";
   const format = url.match(/[?&]format=([a-z0-9]+)/i)?.[1]?.toLowerCase();
@@ -21,7 +26,7 @@ export async function uploadArticleCover(env: Env, id: string, url: string | nul
   try {
     const response = await fetchImpl(url);
     if (!response.ok) throw new Error(`Media HTTP ${response.status}`);
-    await env.MEDIA.put(key, await response.arrayBuffer(), {
+    await env.MEDIA.put(key, await mediaBody(response), {
       httpMetadata: { contentType: response.headers.get("content-type") ?? "application/octet-stream" },
     });
     return key;

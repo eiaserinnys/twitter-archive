@@ -34,6 +34,8 @@ it("passes the chosen config and restores media keys after reimport without reup
     expect(call[1]).toContain(config);
     expect(call[1]?.[4]).toMatch(/^test-media\/media\//);
   }
+  const videoUpload = vi.mocked(execFile).mock.calls.find(call => String(call[1]?.[4]).endsWith(".mp4"));
+  expect(videoUpload?.[1]).toEqual(expect.arrayContaining(["--content-type", "video/mp4"]));
   await importArchive({ archive, dataDir: dir });
   vi.mocked(execFile).mockClear();
   expect(await uploadMedia(options)).toBe(0);

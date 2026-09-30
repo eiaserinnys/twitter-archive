@@ -8,6 +8,7 @@
   "scripts": {
     "test": "vitest run",
     "repair-links": "tsx scripts/repair-links.ts",
+    "repair-archive-media": "tsx scripts/repair-archive-media.ts",
     "setup": "tsx scripts/setup.ts",
     "serve": "tsx src/node/server.ts"
   },

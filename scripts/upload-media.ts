@@ -42,7 +42,7 @@ export async function uploadMedia(options: UploadMediaOptions): Promise<number> 
   }
   const uploadedKeys = new Set(completed);
   const tempDir = resolve(dataDir, ".media-upload");
-  const uploads: Array<{ r2Key: string; localPath: string }> = [];
+  const uploads: Array<{ r2Key: string; localPath: string; contentTypeArgs: string[] }> = [];
   const destinations = new Map<string, string>();
   let skipped = 0;
   for (const tweet of tweets) {
@@ -58,7 +58,7 @@ export async function uploadMedia(options: UploadMediaOptions): Promise<number> 
       }
       const localPath = resolve(tempDir, tweet.id + "-" + index + "-" + filename);
       destinations.set(media.archive_path, localPath);
-      uploads.push({ r2Key, localPath });
+      uploads.push({ r2Key, localPath, contentTypeArgs: media.type === "photo" ? [] : ["--content-type", "video/mp4"] });
     }
   }
 
@@ -67,7 +67,7 @@ export async function uploadMedia(options: UploadMediaOptions): Promise<number> 
   let uploaded = 0;
   const worker = async () => {
     while (next < uploads.length) {
-      const { r2Key, localPath } = uploads[next++];
+      const { r2Key, localPath, contentTypeArgs } = uploads[next++];
       if (options.mediaDir) {
         const destination = safePath(options.mediaDir, r2Key);
         if (!destination) throw new Error("Media key escapes media directory.");
@@ -76,7 +76,7 @@ export async function uploadMedia(options: UploadMediaOptions): Promise<number> 
       } else await new Promise<void>((resolvePromise, reject) => {
         execFile("npx", [
           "wrangler", "r2", "object", "put", bucket + "/" + r2Key,
-          "--file", localPath, "--" + options.mode, ...configArgs,
+          "--file", localPath, "--" + options.mode, ...contentTypeArgs, ...configArgs,
         ], { cwd: repoRoot }, (error, stdout, stderr) => {
           if (stdout) process.stdout.write(stdout);
           if (stderr) process.stderr.write(stderr);

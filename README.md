@@ -256,6 +256,16 @@ npx wrangler d1 execute DB --remote --file repair-links.sql --config wrangler.IN
 
 `DB`와 `INSTANCE`를 운영 설정에 맞는 이름으로 바꾸세요. `--max-usd`에 조회 비용 상한을 지정합니다. 삭제되었거나 조회할 수 없는 트윗은 건너뜁니다.
 
+영상·GIF가 이전 아카이브 설치에서 빠졌다면 아래처럼 후보를 내보내고 원본 zip에서 파일과 복구 SQL을 만듭니다. 스크립트는 업로드나 DB 변경을 하지 않으며, 찾지 못한 항목은 개수와 트윗 id를 보고합니다. `repaired/media/`의 파일을 **폴더 경로 그대로** R2의 저장 키에 올리세요(mp4는 `--content-type video/mp4`). 모든 파일 업로드가 끝난 뒤 SQL을 적용합니다. 내 서버 설치는 파일을 미디어 디렉터리에 같은 경로로 복사하고 SQLite에 SQL을 적용합니다.
+
+```bash
+npx wrangler d1 execute DB --remote --json --command "SELECT tweet_id, idx, type FROM media WHERE r2_key IS NULL;" --config wrangler.INSTANCE.toml > media-candidates.json
+npm run repair-archive-media -- --archive archive.zip --input media-candidates.json --out-dir repaired
+# 생성된 파일마다 실행 (BUCKET은 MEDIA 버킷 이름)
+npx wrangler r2 object put BUCKET/media/101/101-video.mp4 --file repaired/media/101/101-video.mp4 --content-type video/mp4 --remote --config wrangler.INSTANCE.toml
+npx wrangler d1 execute DB --remote --file repaired/repair-archive-media.sql --config wrangler.INSTANCE.toml
+```
+
 ## 개발
 
 ```bash
