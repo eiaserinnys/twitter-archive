@@ -65,7 +65,7 @@ a { color: inherit; }
 
 /* 한글이 섞인 고정폭 글자: JetBrains Mono의 공백(0.6em)을 좁힌다 */
 .label, .tag, .stats dt, .sec-head p, .sec-head .idx, .p-kicker, .p-sub, .sep span, .tw-meta, .tw-ctx small, .tw-why,
-.replay-top, .step .val, .hidden-note, .res-head .mode, .yr-when, .cal-title small, .dayview-head p, .ex .ex-type, .more, .far-x, .fcount { word-spacing: -0.2em; }
+.replay-top, .step .val, .hidden-note, .res-head .mode, .yr-when, .cal-title small, .ex .ex-type, .more, .far-x, .fcount { word-spacing: -0.2em; }
 
 /* ── 머리 ── */
 .mast { border-bottom: 1px solid var(--rule); }
@@ -693,15 +693,9 @@ button.day[aria-pressed="true"] .dt i { box-shadow: 0 0 0 1.5px var(--on-acid); 
 .cal-legend i { width: 9px; height: 9px; border-radius: 50%; }
 .cal-legend .ref-key i { border-radius: 0; width: 0; height: 0; border-style: solid; border-width: 0 10px 10px 0; border-color: transparent var(--mark) transparent transparent; }
 :root[data-theme="light"] .tg i, :root[data-theme="light"] .cal-legend li:not(.ref-key) i { box-shadow: 0 0 0 1px rgba(0,0,0,.45); }
-.cal-note { margin: 12px var(--pad) 0; padding: 12px; border: 1px dashed var(--line); color: var(--ink-2); font-size: 15px; }
-.cal-note .btn { margin-top: 10px; }
-.dayview { margin-top: 18px; border-top: 1px solid var(--rule); scroll-margin-top: calc(var(--stick) + 4px); }
+.td-stack-wrap .yr-head { scroll-margin-top: var(--stick); }
 .td-cal-wrap { scroll-margin-top: var(--stick); }
 .day .dt i.none { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
-.dayview-head { padding: 14px var(--pad) 12px; border-bottom: 1px solid var(--line); }
-.dayview-head h3 { margin: 0; font: 800 24px/1.1 var(--mono); letter-spacing: -0.05em; }
-.dayview-head p { margin: 6px 0 0; font: 500 13px/1.3 var(--mono); color: var(--ink-3); letter-spacing: 0; }
-.dayview .feed .tw:last-child { border-bottom: 0; }
 .td-stack-wrap[hidden], .td-cal-wrap[hidden] { display: none; }
 
 /* ── 바닥글 ── */
