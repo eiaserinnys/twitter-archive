@@ -25,6 +25,7 @@ export function readInstanceConfig(value: unknown): InstanceConfig {
   if (config.target !== undefined && config.target !== "cloudflare" && config.target !== "node") {
     throw new Error("target must be cloudflare or node.");
   }
+  if (config.score_max_usd === undefined) config.score_max_usd = 2;
   if (config.vars && Object.keys(config.vars).some((name) =>
     [...SECRET_NAMES, "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"].includes(name as typeof SECRET_NAMES[number]))) {
     throw new Error("Supply credentials through environment variables, never config.json vars.");
