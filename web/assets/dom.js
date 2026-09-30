@@ -19,6 +19,9 @@ export const weekday = date => weekdays[new Date(dateMs(date)).getUTCDay()];
 export const monthDay = date => `${+date.slice(5, 7)}월 ${+date.slice(8, 10)}일`;
 export const kstToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 export const topicColors = ['#FF5436', '#E8C200', '#4D9DFF', '#2FD27A', '#F062C8', '#8BE9FF', '#FF9A3D', '#A98BFF', '#C6F03A', '#E07BFF', '#D8B48A', '#27D6B0', '#F4F1E6'];
+export const orderTopics = topics => topics.slice().sort((a, b) =>
+  Number(!!a.builtin) - Number(!!b.builtin) || a.sort_order - b.sort_order);
+export const topicColor = (topic, index) => topic.builtin ? 'var(--ink-3)' : topicColors[index % topicColors.length];
 export const tagKinds = [
   ['career', '경력', 'var(--ink)'], ['game', '게임', '#2FD27A'],
   ['video', '영상', '#F062C8'], ['book', '책', '#FF9A3D'], ['other', '기타', '#9AA0A8'],

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 // Browser-native modules are tested without creating the timeline DOM.
 // @ts-expect-error Browser assets are outside the TypeScript source tree.
-import { heatmapLevel, heatmapThresholds } from "../web/assets/heatmap.js";
+import { heatmapLevel, heatmapThresholds, heatmapTopicCounts } from "../web/assets/heatmap.js";
 
 Object.defineProperty(globalThis, "matchMedia", {
   configurable: true,
@@ -17,6 +17,28 @@ Object.defineProperty(globalThis, "document", {
 });
 // @ts-expect-error Browser assets are outside the TypeScript source tree.
 const { heatmapLegendLabels } = await import("../web/assets/timeline.js");
+// @ts-expect-error Browser assets are outside the TypeScript source tree.
+const { orderTopics, topicColor } = await import("../web/assets/dom.js");
+
+describe("builtin topic presentation", () => {
+  it("pins other after regular topics and uses the existing neutral token", () => {
+    const regular = { id: "games", sort_order: 99 };
+    const other = { id: "other", sort_order: 0, builtin: true };
+    expect(orderTopics([other, regular]).map((topic: { id: string }) => topic.id)).toEqual(["games", "other"]);
+    expect(topicColor(other, 0)).toBe("var(--ink-3)");
+    expect(topicColor(other, 8)).toBe("var(--ink-3)");
+    expect(topicColor(regular, 0)).toBe("#FF5436");
+  });
+
+  it("excludes other values from the ramp and paints them with the regular thresholds", () => {
+    const topics = [{ id: "games" }, { id: "other", builtin: true }];
+    const rows = [{ counts: { games: 2, other: 10000 } }, { counts: { games: 9, other: 20000 } }];
+    const counts = heatmapTopicCounts(rows, topics);
+    expect(counts).toEqual([2, 9]);
+    expect(heatmapThresholds(counts)).toEqual(heatmapThresholds([2, 9]));
+    expect(heatmapLevel(10000, heatmapThresholds(counts))).toBe(5);
+  });
+});
 
 describe("nearest-rank table-relative heatmap levels", () => {
   it("splits the 250-cell reference distribution across five levels", () => {

@@ -6,6 +6,7 @@ import { getCacheMeta, getPublicHiddenCount, getTweetStats } from "../db/meta.js
 import { listTopicInfo } from "../db/topics.js";
 import type { AppContext } from "./helpers.js";
 import { getOrCacheJson } from "../cache.js";
+import { isOtherTopicEnabled, otherTopic } from "../other-topic.js";
 
 const route = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
 
@@ -17,10 +18,12 @@ route.get("/api/meta", async (context: AppContext) => {
     cacheMeta.data_version,
     viewer.viewingAs,
     async () => {
-      const [stats, topics] = await Promise.all([
+      const [stats, topics, otherEnabled] = await Promise.all([
         getTweetStats(context.env.DB, viewer),
         listTopicInfo(context.env.DB, viewer),
+        isOtherTopicEnabled(context.env.DB),
       ]);
+      if (otherEnabled) topics.push(otherTopic());
       const body = {
         site_title: context.env.SITE_TITLE,
         account_handle: context.env.ACCOUNT_HANDLE,

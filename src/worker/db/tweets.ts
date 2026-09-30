@@ -5,6 +5,7 @@ import { decodeCursor, encodeCursor, type TweetCursor } from "../cursor.js";
 import { queryIdChunks } from "./chunked.js";
 import { publicHiddenSql, selectTweetTopicChips, type TopicScoreRow } from "../visibility.js";
 import { serializeTweet, type MediaDbRow, type TweetDbRow, type TweetOut } from "../serialize.js";
+import { OTHER_TOPIC_ID, otherTweetSql } from "../other-topic.js";
 
 export interface TweetFilters {
   year?: number;
@@ -24,7 +25,7 @@ export interface TweetFilters {
 export interface TweetListResult {
   tweets: TweetOut[];
   next_cursor: string | null;
-  total: number;
+  total: number | null;
 }
 
 function visibleTopicClause(viewer: Viewer): string {
@@ -67,14 +68,20 @@ function filterWhere(filters: TweetFilters, viewer: Viewer): { sql: string; valu
     values.push(filters.q);
   }
   if (filters.topics?.length) {
-    clauses.push(`EXISTS (
+    const regularTopics = filters.topics.filter(id => id !== OTHER_TOPIC_ID);
+    const topicClauses: string[] = [];
+    if (regularTopics.length) {
+      topicClauses.push(`EXISTS (
       SELECT 1 FROM scores s
       JOIN topics tp ON tp.id = s.topic AND tp.active = 1 AND tp.version = s.version
         AND ${visibleTopicClause(viewer)}
       WHERE s.tweet_id = t.id AND s.score >= ?
-        AND s.topic IN (${filters.topics.map(() => "?").join(", ")})
+        AND s.topic IN (${regularTopics.map(() => "?").join(", ")})
     )`);
-    values.push(TOPIC_SEED.display_threshold, ...filters.topics);
+      values.push(TOPIC_SEED.display_threshold, ...regularTopics);
+    }
+    if (filters.topics.includes(OTHER_TOPIC_ID)) topicClauses.push(otherTweetSql("t"));
+    clauses.push(`(${topicClauses.join(" OR ")})`);
   }
   return { sql: clauses.join(" AND "), values };
 }
@@ -141,7 +148,7 @@ export async function queryTweets(
   filters: TweetFilters,
 ): Promise<TweetListResult> {
   const base = filterWhere(filters, viewer);
-  const count = await db.prepare(`SELECT COUNT(*) AS total FROM tweets t WHERE ${base.sql}`)
+  const count = filters.cursor ? null : await db.prepare(`SELECT COUNT(*) AS total FROM tweets t WHERE ${base.sql}`)
     .bind(...base.values).first<{ total: number }>();
   const pageClauses = [base.sql];
   const pageValues = [...base.values];
@@ -166,7 +173,7 @@ export async function queryTweets(
     next_cursor: hasMore && rows.length > 0
       ? encodeCursor({ created_at: rows[rows.length - 1].created_at, id: rows[rows.length - 1].id })
       : null,
-    total: count?.total ?? 0,
+    total: filters.cursor ? null : count?.total ?? 0,
   };
 }
 

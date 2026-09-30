@@ -10,6 +10,7 @@ import { bumpDataVersion } from "../db/meta.js";
 import { publicHiddenSql, isTopicFilterAllowed } from "../visibility.js";
 import type { AppContext } from "./helpers.js";
 import { invalid, isDate, ownerJsonBody } from "./helpers.js";
+import { OTHER_TOPIC_ID, isOtherTopicEnabled, otherTopic } from "../other-topic.js";
 
 const route = new Hono<{ Bindings: Env; Variables: { viewer: Viewer } }>();
 const tweetKinds = ["original", "reply", "self_reply", "quote"];
@@ -60,6 +61,9 @@ route.get("/api/tweets", async (context: AppContext) => {
   if (kinds?.some((kind) => !tweetKinds.includes(kind))) return invalid(context, "Tweet kind is invalid.");
   if (topics?.length) {
     const topicRows = await listTopicRows(context.env.DB);
+    if (topics.includes(OTHER_TOPIC_ID) && await isOtherTopicEnabled(context.env.DB)) {
+      topicRows.push(otherTopic());
+    }
     if (!isTopicFilterAllowed(topics, topicRows, context.get("viewer"))) {
       return context.json({ error: "topic_not_allowed" }, 400);
     }

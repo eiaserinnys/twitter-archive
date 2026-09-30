@@ -7,3 +7,7 @@ export const heatmapThresholds = counts => {
 
 export const heatmapLevel = (count, thresholds) =>
   count === 0 ? 0 : 1 + thresholds.filter(threshold => count > threshold).length;
+
+export const heatmapTopicCounts = (rows, topics) =>
+  rows.flatMap(row => topics.filter(topic => !topic.builtin).map(topic => row.counts[topic.id] || 0))
+    .filter(count => count > 0);
