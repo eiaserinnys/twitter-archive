@@ -48,13 +48,17 @@ export async function configureAccess(
 ): Promise<void> {
   if (!instance.access) return;
   const root = "/accounts/" + runtime.env.CLOUDFLARE_ACCOUNT_ID;
-  const organization = await runtime.api<{ auth_domain: string }>(root + "/access/organizations");
-  if (!organization?.auth_domain) {
-    console.log("Access skipped: create a Zero Trust organization in Cloudflare, then rerun setup.");
-    return;
+  let teamDomain = vars.ACCESS_TEAM_DOMAIN;
+  if (!teamDomain) {
+    const organization = await runtime.api<{ auth_domain: string }>(root + "/access/organizations");
+    if (!organization?.auth_domain) {
+      console.log("Access skipped: create a Zero Trust organization in Cloudflare, then rerun setup.");
+      return;
+    }
+    teamDomain = organization.auth_domain;
   }
   const domain = hostname + (instance.domain?.path ?? "") + "/owner";
-  vars.ACCESS_TEAM_DOMAIN = organization.auth_domain;
+  vars.ACCESS_TEAM_DOMAIN = teamDomain;
   const apps = await runtime.api<AccessApp[]>(root + "/access/apps");
   let app = apps?.find((item) => item.domain === domain);
   if (runtime.dryRun) {

@@ -99,9 +99,6 @@ export async function setup(args: string[], env: NodeJS.ProcessEnv): Promise<voi
     console.log("Local setup finished.");
     return;
   }
-  for (const name of SECRET_NAMES) {
-    if (env[name]) await runtime.wrangler(["secret", "put", name, ...configArgs], { mutate: true, input: env[name] });
-  }
   let hostname = instance.domain?.hostname;
   if (!hostname) {
     const subdomain = await runtime.api<{ subdomain: string }>("/accounts/" + env.CLOUDFLARE_ACCOUNT_ID + "/workers/subdomain");
@@ -111,6 +108,9 @@ export async function setup(args: string[], env: NodeJS.ProcessEnv): Promise<voi
   await configureAccess(runtime, instance, hostname, vars);
   if (instance.access) await writeConfig();
   await runtime.wrangler(["deploy", ...configArgs], { mutate: true });
+  for (const name of SECRET_NAMES) {
+    if (env[name]) await runtime.wrangler(["secret", "put", name, ...configArgs], { mutate: true, input: env[name] });
+  }
   const siteUrl = "https://" + hostname + (instance.domain?.path ?? "");
   if (dryRun) {
     console.log("Plan: GET " + siteUrl + "/api/health");

@@ -11,7 +11,7 @@
     "ACCOUNT_HANDLE": "your_handle",
     "OWNER_EMAILS": "you@example.com",
     "X_USER_ID": "",
-    "VISITOR_SEARCH": "off"
+    "VISITOR_SEARCH": "presets"
   },
   "archive": "path/to/your-archive.zip",
   "topics": "src/shared/topics.json",
