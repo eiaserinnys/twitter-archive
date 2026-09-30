@@ -11,6 +11,8 @@ export interface TweetDbRow {
   parent_author: string | null;
   quoted_id: string | null;
   quoted_text: string | null;
+  article_title: string | null;
+  article_text: string | null;
   visibility?: "private" | "public" | null;
   public_hidden?: number;
 }
@@ -36,6 +38,7 @@ export interface TweetOut {
   text: string;
   parent: { id: string | null; text: string | null; author: string | null } | null;
   quoted: { id: string | null; text: string | null } | null;
+  article: { title: string; text: string } | null;
   media: Array<{ type: MediaType; url: string | null; width: number | null; height: number | null; alt: string | null }>;
   topics: TweetTopicChip[];
   x_url: string;
@@ -62,6 +65,9 @@ export function serializeTweet(
       author: tweet.parent_author,
     } : null,
     quoted: hasQuote ? { id: tweet.quoted_id, text: tweet.quoted_text } : null,
+    article: tweet.article_title
+      ? { title: tweet.article_title, text: tweet.article_text ?? "" }
+      : null,
     media: media.map((item) => ({
       type: item.type,
       url: item.r2_key ? `/media/${item.r2_key}` : null,

@@ -29,5 +29,7 @@ export interface NormalizedTweet {
   lang: string | null;
   source: "archive" | "api";
   media: TweetMedia[];
+  article_title?: string | null;
+  article_text?: string | null;
   metrics?: Record<string, number>;
 }

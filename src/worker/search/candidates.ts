@@ -20,9 +20,9 @@ export interface CandidateFilters {
 export async function findCandidates(db: D1Database, viewer: Viewer, filters: CandidateFilters): Promise<TweetDbRow[]> {
   const words = filters.q.split(/\s+/).filter((word) => word.length >= 2);
   const wordSql = words.length > 0
-    ? words.map(() => "(instr(lower(t.text), lower(?)) > 0 OR instr(lower(COALESCE(t.parent_text, '')), lower(?)) > 0 OR instr(lower(COALESCE(t.quoted_text, '')), lower(?)) > 0)").join(" OR ")
+    ? words.map(() => `(instr(lower(t.text || ' ' || COALESCE(t.parent_text, '') || ' ' || COALESCE(t.quoted_text, '') || ' ' || COALESCE(t.article_title, '') || ' ' || COALESCE(t.article_text, '')), lower(?)) > 0)`).join(" OR ")
     : "0";
-  const wordValues = words.flatMap((word) => [word, word, word]);
+  const wordValues = words;
   const coordinates = filters.topicCoordinates;
   const topicSql = coordinates.length > 0 ? `(
     SELECT COALESCE(SUM(s.score * CASE s.topic ${coordinates.map(() => "WHEN ? THEN ?").join(" ")} ELSE 0 END), 0)
@@ -71,7 +71,7 @@ export async function findCandidates(db: D1Database, viewer: Viewer, filters: Ca
   const ownerOutput = viewer.viewingAs === "owner" ? ", visibility, public_hidden" : "";
   const result = await db.prepare(`
     WITH matched AS (
-      SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.parent_id, t.parent_text,
+      SELECT t.id, t.created_at, t.date_kst, t.kind, t.text, t.article_title, t.article_text, t.parent_id, t.parent_text,
         t.parent_author, t.quoted_id, t.quoted_text${ownerFields},
         CASE WHEN ${wordSql} THEN 1 ELSE 0 END AS word_match,
         ${topicSql} AS topic_score
@@ -79,7 +79,7 @@ export async function findCandidates(db: D1Database, viewer: Viewer, filters: Ca
       WHERE ${clauses.join(" AND ")}
     )
     SELECT id, created_at, date_kst, kind, text, parent_id, parent_text, parent_author,
-      quoted_id, quoted_text${ownerOutput}
+      quoted_id, quoted_text, article_title, article_text${ownerOutput}
     FROM matched
     ${match ? `WHERE ${match}` : filters.strategies.includes("period") ? "" : "WHERE 0"}
     ORDER BY word_match DESC, topic_score DESC, created_at DESC, id DESC

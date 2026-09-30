@@ -12,6 +12,7 @@ const v2Response = {
       author_id: "self",
       created_at: "2024-03-30T15:30:00.000Z",
       text: "short preview",
+      article: { title: "Synthetic article title", plain_text: "Synthetic article body from the API response." },
       note_tweet: { text: "Long &amp; complete https://t.co/link https://t.co/photo" },
       entities: {
         urls: [
@@ -109,6 +110,8 @@ describe("X API v2 collection normalization", () => {
     expect(rows[0].tweet).toMatchObject({
       date_kst: "2024-03-31",
       text: "Long & complete https://example.test/article",
+      article_title: "Synthetic article title",
+      article_text: "Synthetic article body from the API response.",
       source: "api",
       media: [
         { type: "photo", width: 640, height: 480, alt: "Photo alt", r2_key: null },
@@ -158,6 +161,7 @@ describe("initial X collection", () => {
 
     expect(requests).toHaveLength(3);
     expect(requests[0].searchParams.get("max_results")).toBe("100");
+    expect(requests[0].searchParams.get("tweet.fields")?.split(",")).toContain("article");
     expect(requests[0].searchParams.has("since_id")).toBe(false);
     expect(requests.map((url) => url.searchParams.get("pagination_token"))).toEqual([null, "page-1", "page-2"]);
     expect(ids).toEqual(["1001", "1002", "1003"]);
@@ -230,5 +234,21 @@ describe("score queue requests and monthly cap", () => {
     expect(canReserveJevSpend(5, 0, 0.0001, 5)).toBe(false);
     expect(canReserveJevSpend(4.999, 0.0005, 0.001, 5)).toBe(false);
     expect(canReserveJevSpend(4.9, 0.05, 0.01, 5)).toBe(true);
+  });
+
+  it("adds article title and only the first 3,000 body characters to scoring state", () => {
+    const request = buildJevRequest({
+      ...scoreTweet,
+      article_title: "Synthetic long article",
+      article_text: "x".repeat(3_005),
+    }, [{ id: "topic-a", question: "게임 개발" }]);
+
+    expect(request.state).toBe([
+      "작성일: 2024-01-01",
+      "종류: 원글",
+      "트윗: A scored tweet",
+      "아티클 제목: Synthetic long article",
+      `아티클 본문: ${"x".repeat(3_000)}`,
+    ].join("\n"));
   });
 });

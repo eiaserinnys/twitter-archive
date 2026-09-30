@@ -164,6 +164,8 @@ describe("TweetOut and cursor", () => {
       parent_author: null,
       quoted_id: "456",
       quoted_text: "Quoted text",
+      article_title: "Synthetic API title",
+      article_text: "Synthetic API body.",
     }, [
       { type: "photo", r2_key: "2024/05/image.jpg", width: 640, height: 480, alt: "Image" },
       { type: "video", r2_key: null, width: null, height: null, alt: null },
@@ -175,6 +177,7 @@ describe("TweetOut and cursor", () => {
       text: "A quoted post",
       parent: null,
       quoted: { id: "456", text: "Quoted text" },
+      article: { title: "Synthetic API title", text: "Synthetic API body." },
       media: [
         { type: "photo", url: "/media/2024/05/image.jpg", width: 640, height: 480, alt: "Image" },
         { type: "video", url: null, width: null, height: null, alt: null },
@@ -182,6 +185,23 @@ describe("TweetOut and cursor", () => {
       topics: [{ id: "games", score: 0.91 }],
       x_url: "https://x.com/i/status/123",
     });
+  });
+
+  it("serializes missing or empty article titles as null", () => {
+    expect(serializeTweet({
+      id: "123",
+      created_at: "2024-05-01T12:30:00.000Z",
+      date_kst: "2024-05-01",
+      kind: "original",
+      text: "A post",
+      parent_id: null,
+      parent_text: null,
+      parent_author: null,
+      quoted_id: null,
+      quoted_text: null,
+      article_title: "",
+      article_text: "Article with an empty title",
+    }, [], []).article).toBeNull();
   });
 
   it("round-trips the created_at and id sort key in a base64url cursor", () => {
