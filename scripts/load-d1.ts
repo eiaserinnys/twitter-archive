@@ -1,5 +1,6 @@
+import { DatabaseSync } from "node:sqlite";
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readJsonl } from "../src/shared/jsonl.js";
@@ -24,12 +25,13 @@ function sqlValue(value: string | number | null | undefined): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function insertStatements(table: string, columns: string[], rows: Array<Array<string | number | null | undefined>>): string[] {
+function insertStatements(table: string, columns: string[], rows: Array<Array<string | number | null | undefined>>, conflict?: string): string[] {
   const statements: string[] = [];
   for (let offset = 0; offset < rows.length; offset += 100) {
     const batch = rows.slice(offset, offset + 100);
     const values = batch.map((row) => `(${row.map(sqlValue).join(", ")})`).join(",\n");
-    statements.push(`INSERT OR REPLACE INTO ${table} (${columns.join(", ")}) VALUES\n${values};`);
+    const insert = table === "topics" ? "INSERT OR IGNORE" : conflict ? "INSERT" : "INSERT OR REPLACE";
+    statements.push(`${insert} INTO ${table} (${columns.join(", ")}) VALUES\n${values}${conflict ? " " + conflict : ""};`);
   }
   return statements;
 }
@@ -71,7 +73,10 @@ export function buildSql(tweets: NormalizedTweet[], scores: ScoreRow[], topicSee
   statements.push(...insertStatements("tweets", [
     "id", "created_at", "date_kst", "year", "month", "kind", "text",
     "parent_id", "parent_text", "parent_author", "quoted_id", "quoted_text", "lang", "source",
-  ], tweetRows));
+  ], tweetRows, "ON CONFLICT(id) DO UPDATE SET " + [
+    "created_at", "date_kst", "year", "month", "kind", "text", "parent_id", "parent_text",
+    "parent_author", "quoted_id", "quoted_text", "lang", "source",
+  ].map((column) => column + " = excluded." + column).join(", ")));
 
   const mediaRows = tweets.flatMap((tweet) => tweet.media.map((media, index) => [
     tweet.id,
@@ -82,7 +87,8 @@ export function buildSql(tweets: NormalizedTweet[], scores: ScoreRow[], topicSee
     media.height ?? null,
     media.alt ?? null,
   ]));
-  statements.push(...insertStatements("media", ["tweet_id", "idx", "type", "r2_key", "width", "height", "alt"], mediaRows));
+  statements.push(...insertStatements("media", ["tweet_id", "idx", "type", "r2_key", "width", "height", "alt"], mediaRows,
+    "ON CONFLICT(tweet_id, idx) DO UPDATE SET type = excluded.type, width = excluded.width, height = excluded.height, alt = excluded.alt, r2_key = COALESCE(excluded.r2_key, media.r2_key)"));
 
   const scoreRows = scores.flatMap((row) => topicSeed.topics.flatMap((topic) => {
     const score = row.scores[topic.id];
@@ -103,7 +109,8 @@ export function buildSql(tweets: NormalizedTweet[], scores: ScoreRow[], topicSee
 
 export interface LoadD1Options {
   dataDir: string;
-  mode: "local" | "remote";
+  mode?: "local" | "remote";
+  sqlite?: string;
   topics?: TopicSeedConfig;
   wranglerConfig?: string;
 }
@@ -122,7 +129,11 @@ export async function loadD1(options: LoadD1Options): Promise<{ tweets: number; 
   const sqlPath = resolve(dataDir, "load-d1.sql");
   await writeFile(sqlPath, buildSql(tweets, scores, topicSeed), "utf8");
   const repoRoot = fileURLToPath(new URL("../", import.meta.url));
-  execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--file", sqlPath, `--${options.mode}`,
+  if (options.sqlite) {
+    const sqlite = new DatabaseSync(options.sqlite);
+    try { sqlite.exec(await readFile(sqlPath, "utf8")); }
+    finally { sqlite.close(); }
+  } else execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--file", sqlPath, `--${options.mode}`,
     ...(options.wranglerConfig ? ["--config", options.wranglerConfig] : [])], {
     cwd: repoRoot,
     stdio: "inherit",
@@ -142,15 +153,17 @@ async function main(): Promise<void> {
     remote: { type: "boolean" },
     topics: { type: "string" },
     "wrangler-config": { type: "string" },
+    sqlite: { type: "string" },
   });
-  const mode = selectedMode(args.local as boolean | undefined, args.remote as boolean | undefined);
+  const mode = args.sqlite ? undefined : selectedMode(args.local as boolean | undefined, args.remote as boolean | undefined);
   const result = await loadD1({
     dataDir: typeof args["data-dir"] === "string" ? args["data-dir"] : "./data",
     mode,
+    sqlite: typeof args.sqlite === "string" ? args.sqlite : undefined,
     wranglerConfig: typeof args["wrangler-config"] === "string" ? args["wrangler-config"] : undefined,
     topics: await readTopicSeed(typeof args.topics === "string" ? args.topics : undefined),
   });
-  console.log(`Loaded ${result.tweets} tweets, ${result.scores} score rows, ${result.media} media rows, and ${result.topics} topic seeds (${mode}).`);
+  console.log(`Loaded ${result.tweets} tweets, ${result.scores} score rows, ${result.media} media rows, and ${result.topics} topic seeds (${mode ?? "sqlite"}).`);
 }
 
 if (isDirectExecution(import.meta.url)) main().catch(reportCliError);

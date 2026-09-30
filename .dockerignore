@@ -1,0 +1,9 @@
+node_modules
+instances
+data
+.wrangler
+*.zip
+wrangler.*.toml
+.env*
+.dev.vars
+.git
