@@ -1,5 +1,5 @@
 import type { NormalizedTweet, TweetContext, TweetKind, TweetMedia, MediaType } from "../../shared/types.js";
-import { normalizeTweetText, type TweetUrlEntity } from "../../shared/tweet-text.js";
+import { normalizeTweetText, tweetTextUrlEntities, type TweetUrlEntity } from "../../shared/tweet-text.js";
 import { articleCoverUrl } from "./media.js";
 
 interface RawRecord {
@@ -38,7 +38,7 @@ function includedText(tweet: RawRecord): string {
   const text = stringValue(noteTweet?.text) ?? stringValue(tweet.text) ?? "";
   const urls = urlEntities(tweet);
   const mediaUrls = new Set(urls.filter((url) => url.media_key).map((url) => url.url).filter((url): url is string => Boolean(url)));
-  return normalizeTweetText(text, urls, mediaUrls);
+  return normalizeTweetText(text, tweetTextUrlEntities(tweet), mediaUrls);
 }
 
 function mediaType(value: unknown): MediaType {
@@ -132,7 +132,11 @@ function normalizeTweet(
     if (mediaUrl) mediaUrls.add(mediaUrl);
   }
   const noteTweet = record(tweet.note_tweet);
-  const text = normalizeTweetText(stringValue(noteTweet?.text) ?? stringValue(tweet.text) ?? "", urls, mediaUrls);
+  const text = normalizeTweetText(
+    stringValue(noteTweet?.text) ?? stringValue(tweet.text) ?? "",
+    tweetTextUrlEntities(tweet),
+    mediaUrls,
+  );
   const article = record(tweet.article);
   const media: TweetMedia[] = mediaItems.map((item) => ({
     type: mediaType(item.type),

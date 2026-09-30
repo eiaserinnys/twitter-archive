@@ -78,8 +78,13 @@ export function syntheticArchiveFiles(): Map<string, Uint8Array> {
       tweet: {
         id_str: "106",
         created_at: "Thu Oct 11 02:04:00 +0000 2018",
-        full_text: "Truncated preview",
+        full_text: "Truncated preview https://t.co/archive-link",
         note_tweet: { note_tweet_id: "note-106" },
+        entities: {
+          urls: [
+            { url: "https://t.co/archive-link", expanded_url: "https://example.test/stale" },
+          ],
+        },
       },
     },
     {
@@ -122,7 +127,7 @@ export function syntheticArchiveFiles(): Map<string, Uint8Array> {
   return new Map([
     ["data/account.js", strToU8(`window.YTD.account.part0 = ${JSON.stringify([{ account: { accountId: "1" } }])};`)],
     ["data/tweets.js", encode(tweetRecords)],
-    ["data/note-tweet.js", strToU8(`window.YTD.note_tweet.part0 = ${JSON.stringify([{ noteTweet: { noteTweetId: "note-106", noteTweetContents: { text: "Long body &lt;expanded&gt;" } } }])};`)],
+    ["data/note-tweet.js", strToU8(`window.YTD.note_tweet.part0 = ${JSON.stringify([{ noteTweet: { noteTweetId: "note-106", noteTweetContents: { text: "Long body &lt;expanded&gt; https://t.co/archive-link", entitySet: { urls: [{ url: "https://t.co/archive-link", expandedUrl: "https://example.test/note" }] } } } }])};`)],
     ["data/direct-messages.js", strToU8("Synthetic unrelated archive data; not loaded.")],
     ["data/tweets_media/101-photo.jpg", strToU8("synthetic-photo-1")],
     ["data/tweets_media/107-photo107.jpg", strToU8("synthetic-photo-2")],

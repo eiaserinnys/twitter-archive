@@ -1,5 +1,5 @@
 import type { NormalizedTweet, TweetContext, TweetKind, TweetMedia } from "../shared/types.js";
-import { normalizeTweetText, type TweetUrlEntity } from "../shared/tweet-text.js";
+import { normalizeTweetText, tweetTextUrlEntities, type TweetUrlEntity } from "../shared/tweet-text.js";
 
 interface RawTweet {
   [key: string]: unknown;
@@ -8,6 +8,11 @@ interface RawTweet {
 interface ArchiveAccount {
   id: string;
   username: string;
+}
+
+interface ArchiveNote {
+  text: string;
+  urls: TweetUrlEntity[];
 }
 
 function parseAssignment(content: Uint8Array): unknown[] {
@@ -40,20 +45,30 @@ function archiveAccount(files: Map<string, Uint8Array>): ArchiveAccount {
   };
 }
 
-function noteTexts(files: Map<string, Uint8Array>): Map<string, string> {
+function noteTexts(files: Map<string, Uint8Array>): Map<string, ArchiveNote> {
   const noteFile = files.get("data/note-tweet.js");
   if (!noteFile) return new Map();
-  const notes = new Map<string, string>();
+  const notes = new Map<string, ArchiveNote>();
   for (const record of parseAssignment(noteFile)) {
     const note = recordValue(record, "noteTweet") ?? recordValue(record, "note_tweet");
     const id = stringValue(note?.noteTweetId) ?? stringValue(note?.note_tweet_id) ?? stringValue(note?.id_str) ?? stringValue(note?.id);
-    const contents = note?.noteTweetContents && typeof note.noteTweetContents === "object" && !Array.isArray(note.noteTweetContents)
-      ? note.noteTweetContents as Record<string, unknown>
-      : undefined;
+    const contents = objectRecord(note?.noteTweetContents);
     const text = stringValue(contents?.text) ?? stringValue(note?.fullText) ?? stringValue(note?.full_text) ?? stringValue(note?.text);
-    if (id && text) notes.set(id, text);
+    const entitySet = objectRecord(contents?.entitySet);
+    const urls = Array.isArray(entitySet?.urls)
+      ? entitySet.urls.flatMap((value) => {
+        const entity = objectRecord(value);
+        const url = stringValue(entity?.url);
+        return url ? [{ url, expanded_url: stringValue(entity?.expanded_url) ?? stringValue(entity?.expandedUrl) }] : [];
+      })
+      : [];
+    if (id && text) notes.set(id, { text, urls });
   }
   return notes;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
 function noteId(tweet: RawTweet): string | undefined {
@@ -97,7 +112,7 @@ function linkedStatusId(tweet: RawTweet, text: string): string | undefined {
   return lastId;
 }
 
-function normalizeText(tweet: RawTweet, expandedText: string): string {
+function normalizeText(tweet: RawTweet, expandedText: string, noteUrls?: TweetUrlEntity[]): string {
   const mediaUrls = new Set(mediaSource(tweet).map((media) => stringValue(media.url)).filter((url): url is string => Boolean(url)));
   const entities = tweet.entities;
   if (entities && typeof entities === "object") {
@@ -111,7 +126,10 @@ function normalizeText(tweet: RawTweet, expandedText: string): string {
       }
     }
   }
-  return normalizeTweetText(expandedText, expandedUrls(tweet), mediaUrls);
+  const textTweet = noteUrls === undefined
+    ? tweet
+    : { ...tweet, note_tweet: { text: expandedText, entities: { urls: noteUrls } } };
+  return normalizeTweetText(expandedText, tweetTextUrlEntities(textTweet), mediaUrls);
 }
 
 function tweetKind(tweet: RawTweet, accountId: string, text: string): TweetKind {
@@ -166,8 +184,9 @@ export function normalizeArchive(files: Map<string, Uint8Array>): NormalizedTwee
     const id = stringValue(tweet.id_str) ?? stringValue(tweet.id);
     if (!id) throw new Error("Archive tweet id is missing.");
     const archiveText = stringValue(tweet.full_text) ?? stringValue(tweet.text) ?? "";
-    const expandedText = notes.get(noteId(tweet) ?? id) ?? archiveText;
-    const text = normalizeText(tweet, expandedText);
+    const note = notes.get(noteId(tweet) ?? id);
+    const expandedText = note?.text ?? archiveText;
+    const text = normalizeText(tweet, expandedText, note?.urls);
     textById.set(id, text);
     return { tweet, id, text };
   });
