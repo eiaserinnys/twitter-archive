@@ -192,6 +192,44 @@ describe("initial X collection", () => {
   });
 });
 
+describe("X collection start cursor", () => {
+  it("uses collect_since_id when it is greater than max_tweet_id", async () => {
+    const { db, sqlite } = createD1TestDatabase();
+    sqlite.prepare("INSERT INTO meta (key, value) VALUES ('collect_since_id', '100'), ('max_tweet_id', '99')").run();
+    const requests: URL[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      requests.push(input instanceof URL ? input : new URL(String(input)));
+      return Response.json({ data: [], meta: {} });
+    };
+
+    try {
+      await collectNewTweets(baseTestEnv(db, { X_USER_ID: "self" }), fetchImpl);
+
+      expect(requests[0].searchParams.get("since_id")).toBe("100");
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("uses max_tweet_id when it is greater than collect_since_id", async () => {
+    const { db, sqlite } = createD1TestDatabase();
+    sqlite.prepare("INSERT INTO meta (key, value) VALUES ('collect_since_id', '99'), ('max_tweet_id', '100')").run();
+    const requests: URL[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      requests.push(input instanceof URL ? input : new URL(String(input)));
+      return Response.json({ data: [], meta: {} });
+    };
+
+    try {
+      await collectNewTweets(baseTestEnv(db, { X_USER_ID: "self" }), fetchImpl);
+
+      expect(requests[0].searchParams.get("since_id")).toBe("100");
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
 describe("paged X collection", () => {
   it("stops after 32 pages and warns when a next token remains", async () => {
     const statement = {

@@ -16,6 +16,14 @@ async function metaValue(env: Env, key: string): Promise<string | null> {
   return row?.value ?? null;
 }
 
+async function collectionStartId(env: Env): Promise<string | null> {
+  const collectSinceId = await metaValue(env, "collect_since_id");
+  const maxTweetId = await metaValue(env, "max_tweet_id");
+  if (collectSinceId === null) return maxTweetId;
+  if (maxTweetId === null) return collectSinceId;
+  return BigInt(collectSinceId) >= BigInt(maxTweetId) ? collectSinceId : maxTweetId;
+}
+
 function pageParameters(sinceId: string | null, paginationToken?: string): URLSearchParams {
   const params = new URLSearchParams({
     max_results: String(PAGE_SIZE),
@@ -121,7 +129,7 @@ export async function collectNewTweets(env: Env, fetchImpl: typeof fetch = fetch
   if (!env.X_USER_ID) throw new Error("X_USER_ID is required for scheduled collection.");
   if (!env.X_BEARER_TOKEN) throw new Error("X_BEARER_TOKEN is required for scheduled collection.");
 
-  const sinceId = await metaValue(env, "collect_since_id") ?? await metaValue(env, "max_tweet_id");
+  const sinceId = await collectionStartId(env);
   const tweets: NormalizedV2Tweet[] = [];
   let paginationToken: string | undefined;
   const pageLimit = PAGE_LIMIT;
